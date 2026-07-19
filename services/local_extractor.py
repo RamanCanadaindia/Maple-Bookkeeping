@@ -134,7 +134,7 @@ def parse_date(date_str, start_year, start_month, end_year, end_month):
         clean_str = re.sub(r'\b(20\d{2}|19\d{2})\b', '', clean_str).strip()
         
     # Check for combined Day Month format (e.g., "28feb" or "14mar")
-    m_comb = re.match(r'^(\d{1,2})([a-z]{3,})$', clean_str)
+    m_comb = re.search(r'\b(\d{1,2})([a-z]{3,})\b', clean_str)
     if m_comb:
         day_val, month_name = m_comb.groups()
         month_name = month_name[:3]
@@ -153,7 +153,7 @@ def parse_date(date_str, start_year, start_month, end_year, end_month):
         return f"{year}-{month_num:02d}-{day_num:02d}", month_num
 
     # Check for Month Day format (e.g., "Jan 15", "Dec 2")
-    m = re.match(r'^([a-z]{3})\s+(\d{1,2})$', clean_str)
+    m = re.search(r'\b([a-z]{3})\s+(\d{1,2})\b', clean_str)
     if m:
         month_name, day_val = m.groups()
         month_num = months_map.get(month_name, 1)
@@ -171,7 +171,7 @@ def parse_date(date_str, start_year, start_month, end_year, end_month):
         return f"{year}-{month_num:02d}-{day_num:02d}", month_num
 
     # Check for Day Month format (e.g., "28 Feb", "3 Mar")
-    m_day = re.match(r'^(\d{1,2})\s+([a-z]{3})$', clean_str)
+    m_day = re.search(r'\b(\d{1,2})\s+([a-z]{3})\b', clean_str)
     if m_day:
         day_val, month_name = m_day.groups()
         month_num = months_map.get(month_name, 1)
@@ -189,7 +189,7 @@ def parse_date(date_str, start_year, start_month, end_year, end_month):
         return f"{year}-{month_num:02d}-{day_num:02d}", month_num
         
     # Check for numerical Slash format (e.g., "12/25", "12-25", "01/02")
-    m = re.match(r'^(\d{1,2})[/\-](\d{1,2})$', clean_str)
+    m = re.search(r'\b(\d{1,2})[/\-](\d{1,2})\b', clean_str)
     if m:
         val1, val2 = m.groups()
         num1, num2 = int(val1), int(val2)
