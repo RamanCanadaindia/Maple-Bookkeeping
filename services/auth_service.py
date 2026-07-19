@@ -61,12 +61,9 @@ def create_user(db: Session, name: str, email: str, password: str, role: str = "
 
 def seed_default_users(db: Session):
     """
-    Seeds the default login users if the database is completely empty.
-    Allows overriding the administrator email and password via Streamlit Secrets.
+    Seeds or updates the administrator and default login users.
+    Allows overriding/changing credentials via Streamlit Secrets.
     """
-    if db.query(User).count() != 0:
-        return
-        
     try:
         admin_email = st.secrets.get("APP_ADMIN_EMAIL", "admin@firm.ca")
         admin_password = st.secrets.get("APP_ADMIN_PASSWORD", "admin123")
@@ -76,9 +73,23 @@ def seed_default_users(db: Session):
         admin_password = os.getenv("APP_ADMIN_PASSWORD", "admin123")
         admin_name = os.getenv("APP_ADMIN_NAME", "System Admin")
         
-    create_user(db, admin_name, admin_email, admin_password, "Admin")
-    
-    # Seed default staff profiles if using the default admin account
+    if not admin_email or not admin_password:
+        return
+        
+    # Check if admin user already exists
+    existing = db.query(User).filter(User.email == admin_email.strip().lower()).first()
+    if not existing:
+        create_user(db, admin_name, admin_email, admin_password, "Admin")
+    else:
+        # Update password if it doesn't match secrets (e.g. user updated secrets online)
+        if not verify_password(admin_password, existing.password_hash):
+            existing.password_hash = hash_password(admin_password)
+            db.commit()
+            
+    # Also seed other standard accounts if we are using the default admin account
     if admin_email == "admin@firm.ca":
-        create_user(db, "Lead Accountant", "accountant@firm.ca", "accountant123", "Accountant")
-        create_user(db, "Client Auditor", "viewer@firm.ca", "viewer123", "Viewer")
+        # Only seed if not already present
+        if not db.query(User).filter(User.email == "accountant@firm.ca").first():
+            create_user(db, "Lead Accountant", "accountant@firm.ca", "accountant123", "Accountant")
+        if not db.query(User).filter(User.email == "viewer@firm.ca").first():
+            create_user(db, "Client Auditor", "viewer@firm.ca", "viewer123", "Viewer")
