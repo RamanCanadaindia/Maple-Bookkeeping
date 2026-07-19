@@ -19,23 +19,29 @@ def render_login(db):
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         with st.form("login_form"):
-            email = st.text_input("Work Email", placeholder="name@firm.ca")
-            password = st.text_input("Password", type="password")
+            password = st.text_input("Unlock Password", type="password", placeholder="••••••••")
             
-            submit = st.form_submit_button("Authenticate Securely", use_container_width=True)
+            submit = st.form_submit_button("Unlock Dashboard", use_container_width=True)
             
             if submit:
-                if not email or not password:
-                    st.error("Please enter both email and password.")
+                if not password:
+                    st.error("Please enter your password.")
                 else:
-                    user = authenticate_user(db, email, password)
+                    # Retrieve the configured admin email to authenticate against
+                    import os
+                    try:
+                        admin_email = st.secrets.get("APP_ADMIN_EMAIL", "admin@firm.ca")
+                    except FileNotFoundError:
+                        admin_email = os.getenv("APP_ADMIN_EMAIL", "admin@firm.ca")
+                        
+                    user = authenticate_user(db, admin_email, password)
                     if user:
                         st.session_state.authenticated = True
                         st.session_state.current_user = user
                         st.session_state.current_user_name = user.name
                         st.session_state.current_user_role = user.role
                         st.session_state.current_user_email = user.email
-                        st.success("Authentication successful!")
+                        st.success("Unlocked successfully!")
                         st.rerun()
                     else:
-                        st.error("Invalid credentials or inactive account.")
+                        st.error("Incorrect password.")
