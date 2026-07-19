@@ -68,9 +68,15 @@ try:
 finally:
     db.close()
 
-# Session State Initialization
+# Session State Initialization (Auto-login enabled to make authentication optional)
 if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+    st.session_state.authenticated = True
+if "current_user_name" not in st.session_state:
+    st.session_state.current_user_name = "Raman Bookkeeping"
+if "current_user_role" not in st.session_state:
+    st.session_state.current_user_role = "Admin"
+if "current_user_email" not in st.session_state:
+    st.session_state.current_user_email = "beedhtaxservices@gmail.com"
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
