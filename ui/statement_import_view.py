@@ -131,6 +131,32 @@ def render_statement_import(db):
         )
         
         st.write("")
+        
+        # Download options for CSV / Excel (capturing current state of the edited grid)
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            csv_data = edited_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download as CSV",
+                data=csv_data,
+                file_name=f"{client.business_name}_extracted_statement_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_dl2:
+            import io
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                edited_df.to_excel(writer, index=False, sheet_name="Transactions")
+            st.download_button(
+                label="📊 Download as Excel",
+                data=excel_buffer.getvalue(),
+                file_name=f"{client.business_name}_extracted_statement_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+        st.write("")
         post_btn = st.button("💾 Post Verified Transactions to Ledger", type="primary", use_container_width=True)
         
         if post_btn:
