@@ -1,0 +1,11 @@
+streamlit
+pandas
+sqlalchemy
+bcrypt
+openpyxl
+pypdf
+pdfplumber
+reportlab
+requests
+gspread
+google-auth
