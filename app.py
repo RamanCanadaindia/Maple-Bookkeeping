@@ -60,11 +60,48 @@ st.markdown(
 # Initialize Database and Tables
 Base.metadata.create_all(bind=engine)
 
+def seed_default_client(db_session):
+    from core.models import Client, ClientBankAccount
+    if db_session.query(Client).count() == 0:
+        client = Client(
+            business_name="Raman Bookkeeping Demo Client",
+            business_number="987654321",
+            gst_number="987654321RT0001",
+            fiscal_year_end="December 31",
+            accounting_method="Accrual",
+            gst_method="Regular",
+            gst_period="Quarterly",
+            status="Active"
+        )
+        db_session.add(client)
+        db_session.commit()
+        db_session.refresh(client)
+        
+        # Add Vancity Checking bank account
+        vancity_acc = ClientBankAccount(
+            client_id=client.id,
+            account_name="Vancity Checking",
+            account_type="Bank",
+            opening_balance=0.0
+        )
+        db_session.add(vancity_acc)
+        
+        # Add RBC Mastercard bank account
+        rbc_acc = ClientBankAccount(
+            client_id=client.id,
+            account_name="RBC Mastercard",
+            account_type="Credit Card",
+            opening_balance=0.0
+        )
+        db_session.add(rbc_acc)
+        db_session.commit()
+
 # Open db session
 db = SessionLocal()
 try:
-    # Seed default test users
+    # Seed default test users & demo client
     seed_default_users(db)
+    seed_default_client(db)
 finally:
     db.close()
 
