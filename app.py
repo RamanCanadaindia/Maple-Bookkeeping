@@ -57,8 +57,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Initialize Database and Tables
-Base.metadata.create_all(bind=engine)
+# Initialize Database and Tables only after confirming the engine is PostgreSQL
+if engine.dialect.name == "postgresql":
+    Base.metadata.create_all(bind=engine)
+
 
 def seed_default_client(db_session):
     from core.models import Client, ClientBankAccount

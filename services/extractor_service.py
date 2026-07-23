@@ -43,6 +43,7 @@ def parse_csv_statement(file_bytes: bytes) -> list:
     debit_col = -1
     credit_col = -1
     bal_col = -1
+    category_col = -1
     
     # Simple header detection heuristic
     for idx, r in enumerate(rows[:10]):
@@ -65,6 +66,8 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             credit_col = idx
         elif "balance" in h:
             bal_col = idx
+        elif "category" in h or "type" in h or "account" in h:
+            category_col = idx
             
     extracted = []
     for r in rows[header_idx + 1:]:
@@ -125,6 +128,10 @@ def parse_csv_statement(file_bytes: bytes) -> list:
         if not parsed_date:
             continue # Skip invalid rows that don't have a parseable date
             
+        cat_val = None
+        if category_col != -1 and category_col < len(r) and r[category_col]:
+            cat_val = r[category_col].strip()
+            
         extracted.append({
             "date": parsed_date,
             "original_description": raw_desc.strip(),
@@ -133,7 +140,8 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             "credit": credit_val,
             "amount": amount_val,
             "balance": bal_val,
-            "ref_number": None
+            "ref_number": None,
+            "category": cat_val
         })
         
     return extracted

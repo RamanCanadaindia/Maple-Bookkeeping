@@ -24,7 +24,7 @@ def render_reports(db):
     client_id = client_options[client_name]
     client = get_client_by_id(db, client_id)
     
-    tab_pl, tab_bs, tab_tb, tab_gst = st.tabs(["📊 Income Statement (P&L)", "⚖️ Balance Sheet", "🏁 Trial Balance", "🍁 GST Return Summary"])
+    tab_pl, tab_bs, tab_tb, tab_gst, tab_monthly = st.tabs(["📊 Income Statement (P&L)", "⚖️ Balance Sheet", "🏁 Trial Balance", "🍁 GST Return Summary", "📅 Monthly Cash Flow"])
     
     with tab_pl:
         st.subheader("Income Statement (Profit & Loss)")
@@ -333,3 +333,121 @@ def render_reports(db):
                     use_container_width=True,
                     key="dl_btn_gst_pdf"
                 )
+                
+    with tab_monthly:
+        st.subheader("📅 Monthly Income & Expense Analysis")
+        st.markdown("Visual breakdown of deposits (income) and withdrawals (expenses) by month, plus category distributions.")
+        
+        # Query client transactions from DB
+        txs = db.query(Transaction).filter(Transaction.client_id == client_id, Transaction.is_duplicate == False).all()
+        
+        if not txs:
+            st.info("No transaction records found for this client. Import bank statements first to view this analysis.")
+        else:
+            # Prepare transaction dataframe
+            tx_data = []
+            for tx in txs:
+                tx_data.append({
+                    "date": tx.date,
+                    "amount": tx.amount,
+                    "category": tx.category or "Uncategorized",
+                    "description": tx.cleaned_description or ""
+                })
+            df = pd.DataFrame(tx_data)
+            
+            # Formats
+            df['date'] = pd.to_datetime(df['date'])
+            df['month_str'] = df['date'].dt.strftime('%Y-%m')
+            df['type'] = df['amount'].apply(lambda x: 'Income' if x > 0 else 'Expense')
+            df['abs_amount'] = df['amount'].abs()
+            
+            # Cumulative Summary Metrics
+            total_inc = df[df['type'] == 'Income']['abs_amount'].sum()
+            total_exp = df[df['type'] == 'Expense']['abs_amount'].sum()
+            net_flow = total_inc - total_exp
+            
+            m_col1, m_col2, m_col3 = st.columns(3)
+            m_col1.metric("Cumulative Deposits (Income)", f"${total_inc:,.2f}")
+            m_col2.metric("Cumulative Withdrawals (Expense)", f"${total_exp:,.2f}")
+            m_col3.metric("Net Cash Flow", f"${net_flow:,.2f}", delta=f"${net_flow:,.2f}")
+            
+            st.write("")
+            
+            # Monthly totals
+            monthly_summary = df.groupby(['month_str', 'type'])['abs_amount'].sum().unstack(fill_value=0.0).reset_index()
+            if 'Income' not in monthly_summary.columns:
+                monthly_summary['Income'] = 0.0
+            if 'Expense' not in monthly_summary.columns:
+                monthly_summary['Expense'] = 0.0
+            monthly_summary['Net Flow'] = monthly_summary['Income'] - monthly_summary['Expense']
+            
+            # Trend Chart
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            import numpy as np
+            
+            sns.set_theme(style="whitegrid")
+            fig, ax = plt.subplots(figsize=(10, 4.5))
+            
+            x = np.arange(len(monthly_summary))
+            width = 0.35
+            
+            ax.bar(x - width/2, monthly_summary['Income'], width, label='Income (Deposits)', color='#2e7d32', alpha=0.85)
+            ax.bar(x + width/2, monthly_summary['Expense'], width, label='Expense (Withdrawals)', color='#c62828', alpha=0.85)
+            ax.plot(x, monthly_summary['Net Flow'], color='#1976d2', marker='o', linewidth=2, label='Net Savings')
+            
+            ax.set_title("Income vs Expense by Month", fontsize=12, fontweight='bold', pad=10)
+            ax.set_xticks(x)
+            ax.set_xticklabels(monthly_summary['month_str'], rotation=30, ha='right')
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda val, pos: f"${val:,.0f}"))
+            ax.legend(frameon=True, facecolor='white', edgecolor='none')
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Monthly drill-down
+            st.markdown("---")
+            st.markdown("### 🔍 Monthly Category Drill-Down")
+            months = sorted(df['month_str'].unique(), reverse=True)
+            sel_month = st.selectbox("Select Month to Analyze", months, key="monthly_drill_select")
+            
+            df_m = df[df['month_str'] == sel_month]
+            
+            col_m_exp, col_m_inc = st.columns(2)
+            
+            with col_m_exp:
+                st.markdown(f"**Expenses Breakdown for {sel_month}**")
+                df_m_exp = df_m[df_m['type'] == 'Expense']
+                if df_m_exp.empty:
+                    st.info("No expenses in this month.")
+                else:
+                    cat_exp = df_m_exp.groupby('category')['abs_amount'].sum().sort_values(ascending=False).reset_index()
+                    
+                    fig_exp, ax_exp = plt.subplots(figsize=(6, 3.5))
+                    sns.barplot(data=cat_exp, x='abs_amount', y='category', palette='Reds_r', ax=ax_exp)
+                    ax_exp.set_title("Expenses by Category", fontsize=10, fontweight='bold')
+                    ax_exp.set_xlabel("Amount ($)")
+                    ax_exp.set_ylabel("")
+                    ax_exp.xaxis.set_major_formatter(plt.FuncFormatter(lambda val, pos: f"${val:,.0f}"))
+                    plt.tight_layout()
+                    st.pyplot(fig_exp)
+                    
+                    st.dataframe(cat_exp.rename(columns={'category': 'Category', 'abs_amount': 'Amount ($)'}), use_container_width=True, hide_index=True)
+                    
+            with col_m_inc:
+                st.markdown(f"**Income Breakdown for {sel_month}**")
+                df_m_inc = df_m[df_m['type'] == 'Income']
+                if df_m_inc.empty:
+                    st.info("No income deposits in this month.")
+                else:
+                    cat_inc = df_m_inc.groupby('category')['abs_amount'].sum().sort_values(ascending=False).reset_index()
+                    
+                    fig_inc, ax_inc = plt.subplots(figsize=(6, 3.5))
+                    sns.barplot(data=cat_inc, x='abs_amount', y='category', palette='Greens_r', ax=ax_inc)
+                    ax_inc.set_title("Income by Category", fontsize=10, fontweight='bold')
+                    ax_inc.set_xlabel("Amount ($)")
+                    ax_inc.set_ylabel("")
+                    ax_inc.xaxis.set_major_formatter(plt.FuncFormatter(lambda val, pos: f"${val:,.0f}"))
+                    plt.tight_layout()
+                    st.pyplot(fig_inc)
+                    
+                    st.dataframe(cat_inc.rename(columns={'category': 'Category', 'abs_amount': 'Amount ($)'}), use_container_width=True, hide_index=True)

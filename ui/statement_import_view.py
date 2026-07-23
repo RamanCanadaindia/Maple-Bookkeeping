@@ -45,6 +45,29 @@ def render_statement_import(db):
         help="Supports digital bank statements from RBC, TD, CIBC, BMO, and Scotiabank."
     )
     
+    with st.expander("ℹ️ CSV Import Formatting Guide"):
+        st.markdown("""
+        To import transactions using a custom CSV file, ensure your file contains headers that the app can auto-detect. 
+        
+        ### Required Columns (Auto-Detected Headers):
+        1. **Date**: Column header containing `Date` (e.g. *Transaction Date*, *Posting Date*).
+        2. **Description**: Column header containing `Description`, `Memo`, `Detail`, `Particulars`, or `Name`.
+        3. **Amount** (choose **one** of these options):
+           * **Single Column**: Named `Amount` or `Value` (negative numbers for expenses/withdrawals, positive for deposits/revenue).
+           * **Two Columns**: Named `Debit` (or *Withdrawal*) and `Credit` (or *Deposit*).
+        
+        ### Optional Columns:
+        * **Balance**: Column header containing `Balance` to track the running account totals.
+        * **Category**: Column header containing `Category`, `Type`, or `Account` to pre-assign ledger categorizations.
+        
+        ### Sample CSV Structure:
+        """)
+        sample_df = pd.DataFrame([
+            {"Date": "2026-07-21", "Description": "Rogers Wireless", "Amount": -112.50, "Category": "Telephone Expense", "Balance": 1450.20},
+            {"Date": "2026-07-21", "Description": "Client Deposit", "Amount": 2500.00, "Category": "Professional Fees", "Balance": 3950.20}
+        ])
+        st.dataframe(sample_df, use_container_width=True, hide_index=True)
+
     if uploaded_file is not None:
         file_bytes = uploaded_file.read()
         file_type = uploaded_file.name.split(".")[-1].lower()
@@ -109,6 +132,7 @@ def render_statement_import(db):
                 "Merchant": tx["cleaned_description"],
                 "Amount ($ CAD)": f"${tx['amount']:,.2f}",
                 "Balance ($)": f"${tx['balance']:,.2f}",
+                "Category": tx.get("category", "") or "",
                 "Duplicate?": "⚠️ Yes (Match Found)" if is_dup else "No",
                 "Internal Transfer?": "🔄 Yes" if tx.get("is_transfer") else "No",
                 "Skip Import": is_dup,  # Default to skipping if duplicate
@@ -124,7 +148,7 @@ def render_statement_import(db):
         
         # Render clean editable dataframe review grid
         edited_df = st.data_editor(
-            df_review[["Date", "Original Memo", "Merchant", "Amount ($ CAD)", "Balance ($)", "Duplicate?", "Internal Transfer?", "Skip Import"]],
+            df_review[["Date", "Original Memo", "Merchant", "Amount ($ CAD)", "Balance ($)", "Category", "Duplicate?", "Internal Transfer?", "Skip Import"]],
             use_container_width=True,
             num_rows="fixed",
             disabled=["Date", "Original Memo", "Amount ($ CAD)", "Balance ($)", "Duplicate?", "Internal Transfer?"]
@@ -174,6 +198,11 @@ def render_statement_import(db):
                     skipped_count += 1
                     continue
                     
+                cat_edited = str(row.get("Category", "")).strip()
+                cat_final = cat_edited if cat_edited else orig_tx.get("category", None)
+                if cat_final == "":
+                    cat_final = None
+                    
                 # Create Database Transaction ORM entry
                 db_tx = Transaction(
                     client_id=client_id,
@@ -185,7 +214,7 @@ def render_statement_import(db):
                     credit=orig_tx["credit"],
                     amount=orig_tx["amount"],
                     balance=orig_tx["balance"],
-                    category=orig_tx.get("category", None),
+                    category=cat_final,
                     is_transfer=orig_tx.get("is_transfer", False),
                     transfer_linked_acc=orig_tx.get("transfer_linked_acc", None),
                     confidence=1.0, # Rule based
