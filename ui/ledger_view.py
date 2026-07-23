@@ -1053,18 +1053,8 @@ def render_ledger_editor(db):
                     grand_total_gst += gst_val
                         
                     acc_name = bank_names.get(t.account_id, "Unknown")
-                                      
                     
-                    # PASTE THIS BLOCK HERE:
                     if prev_acc is not None and acc_name != prev_acc:
-                        cat_rows.append({
-                            "Date": "",
-                            "Account": "",
-                            "Merchant": "",
-                            "Withdrawal / Debit ($)": "",
-                            "Deposit / Credit ($)": "",
-                            "GST ($)": ""
-                        })
                         export_rows.append({
                             "Category": "",
                             "Date": "",
@@ -1077,7 +1067,7 @@ def render_ledger_editor(db):
                         pdf_rows.append(["", "", "", "", "", "", ""])
                     
                     prev_acc = acc_name
-                    # --------------------
+                    
                     cat_rows.append({
                         "Date": t.date.strftime("%Y-%m-%d"),
                         "Account": acc_name,
@@ -1105,15 +1095,8 @@ def render_ledger_editor(db):
                         f"${deposit_val:,.2f}" if deposit_val is not None else "",
                         f"${t.gst_amount or 0.0:,.2f}"
                     ])
-                                # ADD THIS BLOCK to insert a blank space before the subtotal:
-                cat_rows.append({
-                    "Date": "",
-                    "Account": "",
-                    "Merchant": "",
-                    "Withdrawal / Debit ($)": "",
-                    "Deposit / Credit ($)": "",
-                    "GST ($)": ""
-                })
+                
+                # ADD THIS BLOCK to insert a blank space before the subtotal:
                 export_rows.append({
                     "Category": "",
                     "Date": "",
@@ -1124,7 +1107,7 @@ def render_ledger_editor(db):
                     "GST": None
                 })
                 pdf_rows.append(["", "", "", "", "", "", ""])
-
+                
                 # Add subtotal row to exports
                 export_rows.append({
                     "Category": cat,
