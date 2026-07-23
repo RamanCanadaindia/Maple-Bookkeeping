@@ -1105,7 +1105,26 @@ def render_ledger_editor(db):
                         f"${deposit_val:,.2f}" if deposit_val is not None else "",
                         f"${t.gst_amount or 0.0:,.2f}"
                     ])
-                    
+                                # ADD THIS BLOCK to insert a blank space before the subtotal:
+                cat_rows.append({
+                    "Date": "",
+                    "Account": "",
+                    "Merchant": "",
+                    "Withdrawal / Debit ($)": "",
+                    "Deposit / Credit ($)": "",
+                    "GST ($)": ""
+                })
+                export_rows.append({
+                    "Category": "",
+                    "Date": "",
+                    "Account": "",
+                    "Merchant": "",
+                    "Withdrawal / Debit": None,
+                    "Deposit / Credit": None,
+                    "GST": None
+                })
+                pdf_rows.append(["", "", "", "", "", "", ""])
+
                 # Add subtotal row to exports
                 export_rows.append({
                     "Category": cat,
@@ -1129,6 +1148,17 @@ def render_ledger_editor(db):
                 st.table(pd.DataFrame(cat_rows))
                 st.markdown(f"**Total Withdrawal:** &nbsp; **`${cat_total_withdrawal:,.2f}`** &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; **Total Deposit:** &nbsp; **`${cat_total_deposit:,.2f}`**")
                 st.markdown("---")
+                
+                export_rows.append({
+                    "Category": "",
+                    "Date": "",
+                    "Account": "",
+                    "Merchant": "",
+                    "Withdrawal / Debit": None,
+                    "Deposit / Credit": None,
+                    "GST": None
+                })
+                pdf_rows.append(["", "", "", "", "", "", ""])
                 
             # Display Grand Totals on Screen
             st.markdown("### 🏆 Grand Totals (All Categories Combined)")
