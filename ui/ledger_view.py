@@ -1037,7 +1037,6 @@ def render_ledger_editor(db):
                 cat_rows = []
                 cat_total_withdrawal = 0.0
                 cat_total_deposit = 0.0
-                prev_acc = None
                 for t in cat_txs:
                     amt = abs(t.amount)
                     withdrawal_val = amt if t.amount < 0 else None
@@ -1053,20 +1052,6 @@ def render_ledger_editor(db):
                     grand_total_gst += gst_val
                         
                     acc_name = bank_names.get(t.account_id, "Unknown")
-                    
-                    if prev_acc is not None and acc_name != prev_acc:
-                        export_rows.append({
-                            "Category": "",
-                            "Date": "",
-                            "Account": "",
-                            "Merchant": "",
-                            "Withdrawal / Debit": None,
-                            "Deposit / Credit": None,
-                            "GST": None
-                        })
-                        pdf_rows.append(["", "", "", "", "", "", ""])
-                    
-                    prev_acc = acc_name
                     
                     cat_rows.append({
                         "Date": t.date.strftime("%Y-%m-%d"),
@@ -1095,18 +1080,6 @@ def render_ledger_editor(db):
                         f"${deposit_val:,.2f}" if deposit_val is not None else "",
                         f"${t.gst_amount or 0.0:,.2f}"
                     ])
-                
-                # ADD THIS BLOCK to insert a blank space before the subtotal:
-                export_rows.append({
-                    "Category": "",
-                    "Date": "",
-                    "Account": "",
-                    "Merchant": "",
-                    "Withdrawal / Debit": None,
-                    "Deposit / Credit": None,
-                    "GST": None
-                })
-                pdf_rows.append(["", "", "", "", "", "", ""])
                 
                 # Add subtotal row to exports
                 export_rows.append({
