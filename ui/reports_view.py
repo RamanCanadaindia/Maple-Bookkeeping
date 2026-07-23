@@ -451,3 +451,33 @@ def render_reports(db):
                     st.pyplot(fig_inc)
                     
                     st.dataframe(cat_inc.rename(columns={'category': 'Category', 'abs_amount': 'Amount ($)'}), use_container_width=True, hide_index=True)
+                    
+            # Detailed Transactions list for the selected month
+            st.markdown("---")
+            st.markdown("### 📋 Monthly Transactions Detail")
+            
+            categories = ["All Categories"] + sorted(list(df_m["category"].unique()))
+            selected_cat = st.selectbox("Filter transactions by category", categories, key="monthly_tx_cat_select")
+            
+            if selected_cat != "All Categories":
+                df_detailed = df_m[df_m["category"] == selected_cat]
+            else:
+                df_detailed = df_m
+                
+            if df_detailed.empty:
+                st.info("No transactions found for this selection.")
+            else:
+                df_show = df_detailed[["date", "category", "description", "amount"]].copy()
+                df_show["date"] = df_show["date"].dt.strftime("%Y-%m-%d")
+                df_show["amount"] = df_show["amount"].apply(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
+                
+                st.dataframe(
+                    df_show.rename(columns={
+                        "date": "Date",
+                        "category": "Category",
+                        "description": "Description / Memo",
+                        "amount": "Amount ($ CAD)"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
