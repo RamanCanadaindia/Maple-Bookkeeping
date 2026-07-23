@@ -25,6 +25,9 @@ def render_ledger_editor(db):
     
     # Query Posted Transactions (Sorted by ID Ascending to preserve import sequence)
     txs = db.query(Transaction).filter(Transaction.client_id == client_id).order_by(Transaction.id.asc()).all()
+    # Dynamic categories to prevent empty rendering for custom categories
+    db_categories = [t.category for t in txs if t.category]
+    options_categories = sorted(list(set(VALID_CATEGORIES + db_categories)))
     
     # Instantiate the three workspace tabs
     tab_reclass, tab_recon, tab_tx_cat = st.tabs([
@@ -317,7 +320,7 @@ def render_ledger_editor(db):
                     "Category": st.column_config.SelectboxColumn(
                         "Category",
                         help="Select standard chart of accounts category",
-                        options=VALID_CATEGORIES,
+                        options=options_categories,
                         required=True
                     )
                 },
@@ -333,7 +336,7 @@ def render_ledger_editor(db):
                 st.info("Check the **Select** box next to any transactions in the table above, then choose values below to bulk update them.")
                 col_b1, col_b2, col_b3 = st.columns(3)
                 with col_b1:
-                    bulk_cat = st.selectbox("Set Category to...", ["No Change"] + VALID_CATEGORIES, key="bulk_cat_select")
+                    bulk_cat = st.selectbox("Set Category to...", ["No Change"] + options_categories, key="bulk_cat_select")
                 with col_b2:
                     bulk_gst = st.selectbox("Set GST Treatment to...", ["No Change", "Standard", "Exempt / Zero-Rated"], key="bulk_gst_select")
                 with col_b3:
@@ -598,7 +601,7 @@ def render_ledger_editor(db):
                     "Category": st.column_config.SelectboxColumn(
                         "Category Mapped",
                         help="Select standard chart of accounts category",
-                        options=VALID_CATEGORIES,
+                        options=options_categories,
                         required=True
                     )
                 },
@@ -1034,7 +1037,7 @@ def render_ledger_editor(db):
                 cat_rows = []
                 cat_total_withdrawal = 0.0
                 cat_total_deposit = 0.0
-                
+                prev_acc = None
                 for t in cat_txs:
                     amt = abs(t.amount)
                     withdrawal_val = amt if t.amount < 0 else None
@@ -1050,6 +1053,31 @@ def render_ledger_editor(db):
                     grand_total_gst += gst_val
                         
                     acc_name = bank_names.get(t.account_id, "Unknown")
+                                      
+                    
+                    # PASTE THIS BLOCK HERE:
+                    if prev_acc is not None and acc_name != prev_acc:
+                        cat_rows.append({
+                            "Date": "",
+                            "Account": "",
+                            "Merchant": "",
+                            "Withdrawal / Debit ($)": "",
+                            "Deposit / Credit ($)": "",
+                            "GST ($)": ""
+                        })
+                        export_rows.append({
+                            "Category": "",
+                            "Date": "",
+                            "Account": "",
+                            "Merchant": "",
+                            "Withdrawal / Debit": None,
+                            "Deposit / Credit": None,
+                            "GST": None
+                        })
+                        pdf_rows.append(["", "", "", "", "", "", ""])
+                    
+                    prev_acc = acc_name
+                    # --------------------
                     cat_rows.append({
                         "Date": t.date.strftime("%Y-%m-%d"),
                         "Account": acc_name,
