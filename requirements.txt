@@ -1,6 +1,7 @@
 streamlit
 pandas
 sqlalchemy
+psycopg2-binary>=2.9.12,<3
 bcrypt
 openpyxl
 pypdf
