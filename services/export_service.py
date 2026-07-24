@@ -59,17 +59,41 @@ def generate_pdf_report(title: str, headers: list, rows: list, is_landscape: boo
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 8))
     
-    # Convert cell values to Paragraphs to support text wrapping
+    # Convert cell values to Paragraphs to support text wrapping with safety truncation
     data = []
     data.append([Paragraph(str(h), header_style) for h in headers])
     for row in rows:
-        data.append([Paragraph(str(cell) if cell is not None else "", cell_style) for cell in row])
+        clean_row = []
+        for cell in row:
+            val_str = str(cell) if cell is not None else ""
+            if len(val_str) > 300:
+                val_str = val_str[:297] + "..."
+            clean_row.append(Paragraph(val_str, cell_style))
+        data.append(clean_row)
         
-    # Calculate column widths to fit margins (letter is 612x792, landscape letter is 792x612)
+    # Calculate column widths proportionally to fit margins (landscape: 792x612, portrait: 612x792)
     # Printable area width = pagesize width - 72
     printable_width = pagesize[0] - 72
     col_count = len(headers)
-    col_widths = [printable_width / col_count] * col_count
+    
+    # Proportional column width allocation based on max content length
+    max_lens = [len(str(h)) for h in headers]
+    for row in rows:
+        for idx, cell in enumerate(row):
+            if idx < len(max_lens):
+                max_lens[idx] = max(max_lens[idx], len(str(cell)) if cell is not None else 0)
+                
+    total_len = sum(max_lens)
+    if total_len > 0 and col_count > 0:
+        # Guarantee a minimum width to prevent too-narrow columns
+        min_width = max(25, int(printable_width / (col_count * 2)))
+        remaining_width = printable_width - (col_count * min_width)
+        col_widths = []
+        for ml in max_lens:
+            w = min_width + (ml / total_len) * remaining_width
+            col_widths.append(w)
+    else:
+        col_widths = [printable_width / col_count] * col_count
     
     t = Table(data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
