@@ -118,7 +118,7 @@ def render_dashboard_tab(db: Session):
     
     overdue_count = db.query(Reminder).filter(
         Reminder.status == "ACTIVE",
-        Reminder.current_due_date < datetime.combine(today_vancouver, time.min())
+        Reminder.current_due_date < datetime.combine(today_vancouver, time.min)
     ).count()
     
     completed_this_month = db.query(Notification).filter(
