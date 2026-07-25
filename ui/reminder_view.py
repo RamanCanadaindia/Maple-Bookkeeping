@@ -285,13 +285,19 @@ def render_reminders_tab(db: Session, is_authorized: bool):
                         db.commit()
                         st.toast(f"Updated Reminder ID {r_id}!", icon="✅")
                         st.rerun()
-                        
-            # Create Reminder manually
-            st.markdown("---")
-            st.markdown("### ➕ Map New Client Reminder Schedule")
-            with st.form("new_reminder_form"):
-                clients = db.query(Client).all()
-                client_opts = {f"{c.business_name} ({c.email or 'No email'})": c.id for c in clients}
+        else:
+            st.dataframe(df_rems, use_container_width=True, hide_index=True)
+
+    # Render manual creation form unconditionally at the bottom (if authorized)
+    if is_authorized:
+        st.markdown("---")
+        st.markdown("### ➕ Map New Client Reminder Schedule")
+        with st.form("new_reminder_form"):
+            clients = db.query(Client).all()
+            client_opts = {f"{c.business_name} ({c.email or 'No email'})": c.id for c in clients}
+            if not client_opts:
+                st.warning("Please register a client profile first before creating reminders.")
+            else:
                 sel_client_name = st.selectbox("Select Client Business*", list(client_opts.keys()))
                 
                 types = db.query(ReminderType).all()
@@ -347,8 +353,6 @@ def render_reminders_tab(db: Session, is_authorized: bool):
                         db.commit()
                         st.success("Successfully registered client reminder!")
                         st.rerun()
-        else:
-            st.dataframe(df_rems, use_container_width=True, hide_index=True)
 
 def render_client_reminder_tab(db: Session, client: Client):
     """
