@@ -98,12 +98,12 @@ def render_dashboard_tab(db: Session):
     now_vancouver = datetime.now(pytz.utc).astimezone(vancouver_tz)
     today_vancouver = now_vancouver.date()
     
-    start_of_today_utc = vancouver_tz.localize(datetime.combine(today_vancouver, time.min())).astimezone(pytz.utc)
-    end_of_today_utc = vancouver_tz.localize(datetime.combine(today_vancouver, time.max())).astimezone(pytz.utc)
+    start_of_today_utc = vancouver_tz.localize(datetime.combine(today_vancouver, time.min)).astimezone(pytz.utc)
+    end_of_today_utc = vancouver_tz.localize(datetime.combine(today_vancouver, time.max)).astimezone(pytz.utc)
     
     # Completed This Month
     first_day_of_month = today_vancouver.replace(day=1)
-    start_of_month_utc = vancouver_tz.localize(datetime.combine(first_day_of_month, time.min())).astimezone(pytz.utc)
+    start_of_month_utc = vancouver_tz.localize(datetime.combine(first_day_of_month, time.min)).astimezone(pytz.utc)
     
     # Metrics calculations
     today_reminders_count = db.query(Notification).filter(
@@ -333,8 +333,8 @@ def render_reminders_tab(db: Session, is_authorized: bool):
                         db_rem = Reminder(
                             client_id=client_id,
                             reminder_type_id=t_id,
-                            first_due_date=datetime.combine(first_due, time.min()),
-                            current_due_date=datetime.combine(first_due, time.min()),
+                            first_due_date=datetime.combine(first_due, time.min),
+                            current_due_date=datetime.combine(first_due, time.min),
                             frequency=freq,
                             recurrence_interval=int(rec_int),
                             reminder_offsets=offsets_str,
@@ -415,8 +415,8 @@ def render_client_reminder_tab(db: Session, client: Client):
                     db_rem = Reminder(
                         client_id=client.id,
                         reminder_type_id=type_opts[sel_type_name],
-                        first_due_date=datetime.combine(first_due, time.min()),
-                        current_due_date=datetime.combine(first_due, time.min()),
+                        first_due_date=datetime.combine(first_due, time.min),
+                        current_due_date=datetime.combine(first_due, time.min),
                         frequency=freq,
                         recurrence_interval=int(rec_int),
                         reminder_offsets=offsets_str,
