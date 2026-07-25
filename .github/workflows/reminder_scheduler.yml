@@ -1,0 +1,36 @@
+name: Daily Reminder Scheduler
+
+on:
+  schedule:
+    - cron: '0 15 * * *' # Run daily at 15:00 UTC (8:00 AM or 7:00 AM Vancouver time)
+  workflow_dispatch:      # Support manual triggering from GitHub Actions page
+
+concurrency:
+  group: reminder-scheduler
+  cancel-in-progress: false # Do not interrupt currently running schedules
+
+jobs:
+  run-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install sqlalchemy psycopg2-binary pytz cryptography google-auth-oauthlib google-api-python-client google-auth-httplib2
+
+      - name: Run Scheduler Cycle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+        run: |
+          python reminder_scheduler.py

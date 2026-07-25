@@ -31,6 +31,7 @@ class Client(Base):
     business_use_pct = Column(Float, default=100.0)  # For vehicles/mixed assets
     gst_method = Column(String, default="Regular")   # Regular or Quick Method
     gst_period = Column(String, default="Quarterly") # Monthly, Quarterly, Annually
+    email = Column(String, nullable=True)
     shareholder_info = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, default="Active")        # Active, Locked
@@ -157,3 +158,125 @@ class JournalLine(Base):
 
     # Relationships
     entry = relationship("JournalEntry", back_populates="lines")
+
+
+class ReminderType(Base):
+    __tablename__ = "reminder_types"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    code = Column(String, nullable=False, unique=True, index=True)
+    default_days_before = Column(String, default="30,14,7,2") # comma-separated list
+    is_custom = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
+    reminder_type_id = Column(Integer, ForeignKey("reminder_types.id"), nullable=False)
+    first_due_date = Column(DateTime, nullable=False)
+    current_due_date = Column(DateTime, nullable=False)
+    frequency = Column(String, default="Quarterly") # One Time, Monthly, Quarterly, Annually, Custom
+    recurrence_interval = Column(Integer, default=1)
+    reminder_offsets = Column(String, nullable=False) # comma-separated string e.g. "30,14,7,2"
+    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    status = Column(String, default="ACTIVE") # ACTIVE, PAUSED, CANCELLED
+    notes = Column(Text, nullable=True)
+    day_of_month = Column(Integer, nullable=True)
+    month_of_year = Column(Integer, nullable=True)
+    custom_interval_days = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    client = relationship("Client")
+    reminder_type = relationship("ReminderType")
+    template = relationship("EmailTemplate", foreign_keys=[template_id])
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    reminder_id = Column(Integer, ForeignKey("reminders.id"), nullable=False)
+    current_due_date = Column(DateTime, nullable=False)
+    offset_days = Column(Integer, nullable=False)
+    recipient_email = Column(String, nullable=False)
+    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
+    channel = Column(String, default="GMAIL")
+    status = Column(String, default="PENDING") # PENDING, PROCESSING, SENT, FAILED, SKIPPED
+    scheduled_send_date = Column(DateTime, nullable=False)
+    processing_started_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    attempt_count = Column(Integer, default=0)
+    gmail_message_id = Column(String, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    # Unique Constraint to prevent duplicates
+    from sqlalchemy import UniqueConstraint
+    __table_args__ = (
+        UniqueConstraint(
+            'reminder_id', 'current_due_date', 'offset_days', 'recipient_email', 'template_id', 'channel',
+            name='uq_notification_identity'
+        ),
+    )
+
+    # Relationships
+    reminder = relationship("Reminder")
+    template = relationship("EmailTemplate")
+
+
+class EmailTemplate(Base):
+    __tablename__ = "email_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    reminder_type_id = Column(Integer, ForeignKey("reminder_types.id"), nullable=True)
+    name = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body_html = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    reminder_type = relationship("ReminderType")
+
+
+class EmailHistory(Base):
+    __tablename__ = "email_histories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    reminder_id = Column(Integer, ForeignKey("reminders.id"), nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    recipient_email = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    reminder_type_name = Column(String, nullable=True)
+    status = Column(String, default="SENT")
+    gmail_message_id = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    # Relationships
+    reminder = relationship("Reminder")
+
+
+class ReminderSettings(Base):
+    __tablename__ = "reminder_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    gmail_oauth_token = Column(Text, nullable=True) # JSON encrypted string
+    gmail_authorized_email = Column(String, nullable=True)
+
+
+class SchedulerRun(Base):
+    __tablename__ = "scheduler_runs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False) # SUCCESS, FAILED
+    reminders_checked = Column(Integer, default=0)
+    emails_sent = Column(Integer, default=0)
+    emails_failed = Column(Integer, default=0)
+    error_summary = Column(Text, nullable=True)
+    trigger_source = Column(String, default="AUTO") # AUTO, MANUAL

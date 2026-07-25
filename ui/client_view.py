@@ -41,6 +41,7 @@ def render_client_management(db):
             st.subheader("➕ Create Client Profile")
             with st.form("new_client_form"):
                 bus_name = st.text_input("Business Legal Name (Required)*")
+                email = st.text_input("Client Email Address (Required for reminders)*")
                 
                 col_c1, col_c2 = st.columns(2)
                 with col_c1:
@@ -75,6 +76,8 @@ def render_client_management(db):
                     # Validate inputs
                     if not bus_name:
                         st.error("Business Legal Name is a required field.")
+                    elif not email or "@" not in email:
+                        st.error("A valid Client Email Address is required.")
                     elif bus_num and not re.match(r'^\d{9}$', bus_num.strip()):
                         st.error("CRA Business Number must be exactly 9 digits.")
                     elif gst_num and not re.match(r'^\d{9}RT\d{4}$', gst_num.strip()):
@@ -88,6 +91,7 @@ def render_client_management(db):
                                 gst_number=gst_num,
                                 fiscal_year_end=fye,
                                 industry=industry,
+                                email=email,
                                 accounting_method=method,
                                 business_use_pct=use_pct,
                                 gst_method=gst_method,
@@ -112,13 +116,14 @@ def render_client_management(db):
             else:
                 st.success("🟢 THIS CLIENT PROFILE IS ACTIVE. Bookkeeping transactions and bank setups can be edited.")
                 
-            tab_info, tab_ledgers, tab_lock = st.tabs(["📋 Business Profile", "🏦 Linked Bank Accounts", "🛡️ Lock Management"])
+            tab_info, tab_ledgers, tab_lock, tab_reminders = st.tabs(["📋 Business Profile", "🏦 Linked Bank Accounts", "🛡️ Lock Management", "⏰ Reminder Schedules"])
             
             with tab_info:
                 st.subheader("General Profile Information")
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
                     st.write(f"**Business Legal Name:** {client.business_name}")
+                    st.write(f"**Client Email:** {client.email or 'N/A'}")
                     st.write(f"**CRA Business Number:** {client.business_number or 'N/A'}")
                     st.write(f"**GST/HST Number:** {client.gst_number or 'N/A'}")
                     st.write(f"**GST Method:** {client.gst_method} ({client.gst_period})")
@@ -133,6 +138,17 @@ def render_client_management(db):
                 st.write(client.shareholder_info or "No shareholder info documented.")
                 st.write("**Accountant Notes:**")
                 st.write(client.notes or "No notes documented.")
+                
+                # Update email address
+                st.write("")
+                st.markdown("##### ✏️ Update Client Contact Email")
+                new_email = st.text_input("Client Email Address (for automated reminders)", value=client.email or "", key=f"edit_client_email_{client.id}")
+                if new_email != (client.email or ""):
+                    if client.status != "Locked" and st.session_state.get("current_user_role") in ("Admin", "Accountant"):
+                        client.email = new_email.strip()
+                        db.commit()
+                        st.toast("Client email updated successfully!", icon="✅")
+                        st.rerun()
                 
                 # Client Backup Section
                 st.write("")
@@ -351,3 +367,7 @@ def render_client_management(db):
                             st.rerun()
                         except PermissionError as pe:
                             st.error(f"Access Denied: {pe}")
+                            
+            with tab_reminders:
+                from ui.reminder_view import render_client_reminder_tab
+                render_client_reminder_tab(db, client)

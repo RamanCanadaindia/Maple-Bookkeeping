@@ -57,9 +57,16 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Initialize Database and Tables only after confirming the engine is PostgreSQL
-if engine.dialect.name == "postgresql":
-    Base.metadata.create_all(bind=engine)
+# Initialize Database and Tables
+Base.metadata.create_all(bind=engine)
+
+# Seed initial reminder types and templates
+from services.reminder_scheduler import seed_initial_data
+db_init = SessionLocal()
+try:
+    seed_initial_data(db_init)
+finally:
+    db_init.close()
 
 
 def seed_default_client(db_session):
@@ -135,34 +142,54 @@ try:
             st.write(f"Email: `{st.session_state.current_user_email}`")
             
             st.write("---")
+            app_mode = st.radio(
+                "📂 Navigation Module", 
+                ["💼 Bookkeeping Operations", "⏰ Reminder Centre"],
+                key="main_app_navigation_module"
+            )
+            
+            if app_mode == "⏰ Reminder Centre":
+                st.write("---")
+                reminder_section = st.radio(
+                    "Reminder Sub-Menu",
+                    ["Dashboard", "Client Reminders", "Email Templates", "Email History", "Settings"],
+                    key="reminder_centre_section"
+                )
+            
+            st.write("---")
             if st.button("🚪 Sign Out", type="secondary", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.current_user = None
                 st.rerun()
                 
-        # Main Title bar
-        st.markdown("<h1 class='main-header'>🍁 Canadian Bookkeeping Operations</h1>", unsafe_allow_html=True)
-        
-        # Tabs for Operations
-        tab_dash, tab_clients, tab_import, tab_ledger, tab_receipt, tab_reports = st.tabs(["📊 Operations Dashboard", "📁 Client Management", "📥 Statement Ingestion", "📖 General Ledger", "🧾 Receipt Matcher", "📈 Financial Statements"])
-        
-        with tab_dash:
-            render_dashboard(db_session)
+        if app_mode == "💼 Bookkeeping Operations":
+            # Main Title bar
+            st.markdown("<h1 class='main-header'>🍁 Canadian Bookkeeping Operations</h1>", unsafe_allow_html=True)
             
-        with tab_clients:
-            render_client_management(db_session)
+            # Tabs for Operations
+            tab_dash, tab_clients, tab_import, tab_ledger, tab_receipt, tab_reports = st.tabs(["📊 Operations Dashboard", "📁 Client Management", "📥 Statement Ingestion", "📖 General Ledger", "🧾 Receipt Matcher", "📈 Financial Statements"])
             
-        with tab_import:
-            render_statement_import(db_session)
-            
-        with tab_ledger:
-            render_ledger_editor(db_session)
-            
-        with tab_receipt:
-            render_receipt_matcher(db_session)
-            
-        with tab_reports:
-            render_reports(db_session)
+            with tab_dash:
+                render_dashboard(db_session)
+                
+            with tab_clients:
+                render_client_management(db_session)
+                
+            with tab_import:
+                render_statement_import(db_session)
+                
+            with tab_ledger:
+                render_ledger_editor(db_session)
+                
+            with tab_receipt:
+                render_receipt_matcher(db_session)
+                
+            with tab_reports:
+                render_reports(db_session)
+        else:
+            st.markdown("<h1 class='main-header'>⏰ Reminder Centre</h1>", unsafe_allow_html=True)
+            from ui.reminder_view import render_reminder_centre
+            render_reminder_centre(db_session, reminder_section)
             
 finally:
     db_session.close()

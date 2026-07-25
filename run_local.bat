@@ -1,0 +1,13 @@
+@echo off
+cd /d "C:\Users\admin\.gemini\antigravity\scratch\canadian_accounting_system"
+if not exist ".venv" (
+    echo [System] Creating virtual environment...
+    python -m venv .venv
+)
+echo [System] Activating environment...
+call .venv\Scripts\activate.bat
+echo [System] Checking dependencies...
+pip install -r requirements.txt
+echo [System] Starting Maple Ledger AI...
+streamlit run app.py
+pause
