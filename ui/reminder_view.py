@@ -647,6 +647,32 @@ def render_history_tab(db: Session):
 def render_settings_tab(db: Session, is_authorized: bool):
     st.subheader("⚙️ Settings & Integration Setup")
     
+    # Configuration Diagnostics
+    import os
+    with st.expander("🔍 Configuration Diagnostics (Debug)"):
+        st.write("Checking which settings are successfully loaded by the server:")
+        keys_to_check = [
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "GOOGLE_REDIRECT_URI",
+            "DATABASE_URL",
+            "TOKEN_ENCRYPTION_KEY"
+        ]
+        for key in keys_to_check:
+            in_secrets = False
+            try:
+                in_secrets = key in st.secrets
+            except Exception:
+                pass
+            in_env = key in os.environ
+            
+            status = "✅ Loaded" if (in_secrets or in_env) else "❌ Missing"
+            details = []
+            if in_secrets: details.append("Streamlit Secrets")
+            if in_env: details.append("Environment Variables")
+            
+            st.write(f"- **{key}**: {status} ({' found in ' + ' & '.join(details) if details else 'not found'})")
+
     settings = db.query(ReminderSettings).first()
     
     # Display status
