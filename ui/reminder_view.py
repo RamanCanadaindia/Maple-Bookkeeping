@@ -167,6 +167,7 @@ def render_dashboard_tab(db: Session):
         for n in upcoming_notifs:
             rem = n.reminder
             records.append({
+                "ID": n.id,
                 "Client": rem.client.business_name if rem.client else "Unknown",
                 "Email": n.recipient_email,
                 "Filing Due Date": rem.current_due_date.strftime("%Y-%m-%d"),
@@ -175,6 +176,25 @@ def render_dashboard_tab(db: Session):
                 "Reminder Type": rem.reminder_type.name if rem.reminder_type else "General"
             })
         st.dataframe(pd.DataFrame(records), use_container_width=True, hide_index=True)
+        
+        # Manual sender widget
+        st.write("")
+        st.markdown("##### 📤 Force Send Scheduled Reminder (Manual Test)")
+        notif_opts = {
+            f"Notification ID {n.id} | {n.reminder.client.business_name} - {n.reminder.reminder_type.name} (Due: {n.reminder.current_due_date.strftime('%Y-%m-%d')}, Offset: {n.offset_days}d)": n.id
+            for n in upcoming_notifs
+        }
+        sel_notif_str = st.selectbox("Select a scheduled notification to send now", list(notif_opts.keys()), key="man_notif_select")
+        
+        if st.button("📧 Dispatch Selected Email Now", type="secondary", key="dispatch_man_notif_btn"):
+            selected_notif_id = notif_opts[sel_notif_str]
+            from services.reminder_scheduler import dispatch_notification_manually
+            success, message = dispatch_notification_manually(db, selected_notif_id)
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
 
 def render_reminders_tab(db: Session, is_authorized: bool):
     st.subheader("📅 Client Reminder Schedules")

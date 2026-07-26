@@ -437,6 +437,97 @@ def run_scheduler_cycle(trigger_source: str = "AUTO") -> dict:
         "errors": errors
     }
 
+def dispatch_notification_manually(db: Session, notif_id: int) -> tuple[bool, str]:
+    """
+    Forces the direct immediate sending of a scheduled Notification, regardless of date/offset.
+    Returns (success, message).
+    """
+    from services.gmail_service import get_gmail_service, send_gmail_email, parse_template
+    from datetime import datetime
+    
+    notif = db.query(Notification).filter(Notification.id == notif_id).first()
+    if not notif:
+        return False, "Notification not found."
+        
+    rem = notif.reminder
+    if not rem:
+        return False, "Linked reminder configuration not found."
+        
+    client = rem.client
+    if not client or not client.email:
+        return False, "Client email is not configured."
+        
+    # Check Gmail Connection
+    gmail_settings = db.query(ReminderSettings).first()
+    if not gmail_settings or not gmail_settings.gmail_oauth_token:
+        return False, "Gmail integration is not authorized in Settings."
+        
+    try:
+        gmail_service, refreshed_token = get_gmail_service(gmail_settings.gmail_oauth_token)
+        if refreshed_token != gmail_settings.gmail_oauth_token:
+            gmail_settings.gmail_oauth_token = refreshed_token
+            db.commit()
+    except Exception as e:
+        return False, f"Gmail Connection failed: {e}"
+        
+    # Build vars
+    period_start, period_end = get_period_dates(rem.current_due_date, rem.frequency)
+    vars_dict = {
+        "client_name": client.business_name,
+        "business_name": client.business_name,
+        "period_start": period_start.strftime("%B %d, %Y"),
+        "period_end": period_end.strftime("%B %d, %Y"),
+        "due_date": rem.current_due_date.strftime("%B %d, %Y"),
+        "reminder_type": rem.reminder_type.name if rem.reminder_type else "Tax Filing",
+        "staff_name": rem.notes or "Your Accountant",
+        "company_name": "Maple Bookkeeping",
+        "phone": "604-555-0199",
+        "email": client.email
+    }
+    
+    try:
+        subject = parse_template(notif.template.subject, vars_dict)
+        body = parse_template(notif.template.body, vars_dict)
+        
+        # Send
+        msg_id = send_gmail_email(gmail_service, to_email=client.email, subject=subject, body_html=body)
+        
+        # Mark SENT
+        notif.status = "SENT"
+        notif.sent_at = datetime.utcnow()
+        notif.processing_started_at = datetime.utcnow()
+        
+        # Write to EmailHistory
+        from core.models import EmailHistory
+        hist = EmailHistory(
+            notification_id=notif.id,
+            recipient_email=client.email,
+            subject=subject,
+            sent_at=datetime.utcnow(),
+            status="SUCCESS",
+            message_id=msg_id
+        )
+        db.add(hist)
+        db.commit()
+        return True, f"Successfully sent to {client.email}! Message ID: {msg_id}"
+    except Exception as send_err:
+        db.rollback()
+        # Mark FAILED
+        notif.status = "FAILED"
+        notif.sent_at = datetime.utcnow()
+        from core.models import EmailHistory
+        hist = EmailHistory(
+            notification_id=notif.id,
+            recipient_email=client.email,
+            subject=notif.template.subject,
+            sent_at=datetime.utcnow(),
+            status="FAILED",
+            error_details=str(send_err)
+        )
+        db.add(hist)
+        db.commit()
+        return False, f"Failed to send: {send_err}"
+
 if __name__ == "__main__":
     # If run standalone, execute scheduler cycle
     print("[Scheduler] Starting Daily Reminder Processing Cycle...")
