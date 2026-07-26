@@ -139,15 +139,23 @@ def render_client_management(db):
                 st.write("**Accountant Notes:**")
                 st.write(client.notes or "No notes documented.")
                 
-                # Update email address
+                # Update client details
                 st.write("")
-                st.markdown("##### ✏️ Update Client Contact Email")
-                new_email = st.text_input("Client Email Address (for automated reminders)", value=client.email or "", key=f"edit_client_email_{client.id}")
-                if new_email != (client.email or ""):
-                    if client.status != "Locked" and st.session_state.get("current_user_role") in ("Admin", "Accountant"):
+                st.markdown("##### ✏️ Update Client Profile")
+                col_up1, col_up2 = st.columns(2)
+                with col_up1:
+                    new_name = st.text_input("Business Legal Name", value=client.business_name, key=f"edit_client_name_{client.id}")
+                with col_up2:
+                    new_email = st.text_input("Client Email Address (for automated reminders)", value=client.email or "", key=f"edit_client_email_{client.id}")
+                    
+                if new_name != client.business_name or new_email != (client.email or ""):
+                    if not new_name.strip():
+                        st.error("Business Legal Name cannot be empty.")
+                    elif client.status != "Locked" and st.session_state.get("current_user_role") in ("Admin", "Accountant"):
+                        client.business_name = new_name.strip()
                         client.email = new_email.strip()
                         db.commit()
-                        st.toast("Client email updated successfully!", icon="✅")
+                        st.toast("Client profile updated successfully!", icon="✅")
                         st.rerun()
                 
                 # Client Backup Section
