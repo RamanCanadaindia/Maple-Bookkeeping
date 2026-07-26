@@ -215,7 +215,7 @@ def render_reminders_tab(db: Session, is_authorized: bool):
                 "ID": r.id,
                 "Client": r.client.business_name if r.client else "Unknown",
                 "Filing Type": r.reminder_type.name if r.reminder_type else "Unknown",
-                "Next Due Date": r.current_due_date.strftime("%Y-%m-%d"),
+                "Next Due Date": r.current_due_date.date(),
                 "Frequency": r.frequency,
                 "Interval": r.recurrence_interval,
                 "Offsets": r.reminder_offsets,
@@ -277,7 +277,11 @@ def render_reminders_tab(db: Session, is_authorized: bool):
                 if due_dt_changed or freq_changed or int_changed or offs_changed or stat_changed:
                     db_rem = db.query(Reminder).filter(Reminder.id == r_id).first()
                     if db_rem:
-                        db_rem.current_due_date = datetime.strptime(str(row["Next Due Date"]), "%Y-%m-%d")
+                        new_date_val = row["Next Due Date"]
+                        if isinstance(new_date_val, str):
+                            db_rem.current_due_date = datetime.strptime(new_date_val, "%Y-%m-%d")
+                        else:
+                            db_rem.current_due_date = datetime.combine(new_date_val, time.min)
                         db_rem.frequency = row["Frequency"]
                         db_rem.recurrence_interval = int(row["Interval"])
                         db_rem.reminder_offsets = row["Offsets"]
