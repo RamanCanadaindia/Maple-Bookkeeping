@@ -177,7 +177,7 @@ def render_dashboard_tab(db: Session):
             })
         st.dataframe(pd.DataFrame(records), use_container_width=True, hide_index=True)
         
-        # Manual sender widget
+        # Manual sender widget for scheduled notifications
         st.write("")
         st.markdown("##### 📤 Force Send Scheduled Reminder (Manual Test)")
         notif_opts = {
@@ -190,6 +190,28 @@ def render_dashboard_tab(db: Session):
             selected_notif_id = notif_opts[sel_notif_str]
             from services.reminder_scheduler import dispatch_notification_manually
             success, message = dispatch_notification_manually(db, selected_notif_id)
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
+
+    # General Manual Sender (renders unconditionally at the bottom of the Dashboard page)
+    st.write("")
+    st.markdown("##### 📤 Send Custom Test Reminder Immediately")
+    all_rems = db.query(Reminder).filter(Reminder.status == "ACTIVE").all()
+    if not all_rems:
+        st.info("No active reminder schedules found. Set up a client reminder schedule under 'Client Reminders' tab first.")
+    else:
+        rem_opts = {
+            f"{r.client.business_name} - {r.reminder_type.name} (Due: {r.current_due_date.strftime('%Y-%m-%d')})": r.id
+            for r in all_rems
+        }
+        sel_rem_str = st.selectbox("Select a client schedule to trigger test email", list(rem_opts.keys()), key="man_rem_select")
+        if st.button("📧 Send Test Reminder Now", type="secondary", key="dispatch_man_rem_btn"):
+            selected_rem_id = rem_opts[sel_rem_str]
+            from services.reminder_scheduler import dispatch_reminder_test_email
+            success, message = dispatch_reminder_test_email(db, selected_rem_id)
             if success:
                 st.success(message)
                 st.rerun()

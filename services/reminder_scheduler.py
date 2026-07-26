@@ -528,6 +528,89 @@ def dispatch_notification_manually(db: Session, notif_id: int) -> tuple[bool, st
         db.commit()
         return False, f"Failed to send: {send_err}"
 
+def dispatch_reminder_test_email(db: Session, reminder_id: int) -> tuple[bool, str]:
+    """
+    Triggers an immediate test email send for a given Reminder configuration.
+    """
+    from services.gmail_service import get_gmail_service, send_gmail_email, parse_template
+    from datetime import datetime
+    from core.models import EmailHistory, Reminder, EmailTemplate, ReminderSettings
+    
+    rem = db.query(Reminder).filter(Reminder.id == reminder_id).first()
+    if not rem:
+        return False, "Reminder configuration not found."
+        
+    client = rem.client
+    if not client or not client.email:
+        return False, "Client email is not configured."
+        
+    # Load template
+    template = rem.template
+    if not template and rem.reminder_type_id:
+        template = db.query(EmailTemplate).filter(EmailTemplate.reminder_type_id == rem.reminder_type_id).first()
+    if not template:
+        return False, "No email template found for this reminder."
+        
+    # Check Gmail Connection
+    gmail_settings = db.query(ReminderSettings).first()
+    if not gmail_settings or not gmail_settings.gmail_oauth_token:
+        return False, "Gmail integration is not authorized in Settings."
+        
+    try:
+        gmail_service, refreshed_token = get_gmail_service(gmail_settings.gmail_oauth_token)
+        if refreshed_token != gmail_settings.gmail_oauth_token:
+            gmail_settings.gmail_oauth_token = refreshed_token
+            db.commit()
+    except Exception as e:
+        return False, f"Gmail Connection failed: {e}"
+        
+    # Build vars
+    period_start, period_end = get_period_dates(rem.current_due_date, rem.frequency)
+    vars_dict = {
+        "client_name": client.business_name,
+        "business_name": client.business_name,
+        "period_start": period_start.strftime("%B %d, %Y"),
+        "period_end": period_end.strftime("%B %d, %Y"),
+        "due_date": rem.current_due_date.strftime("%B %d, %Y"),
+        "reminder_type": rem.reminder_type.name if rem.reminder_type else "Tax Filing",
+        "staff_name": rem.notes or "Your Accountant",
+        "company_name": "Maple Bookkeeping",
+        "phone": "604-555-0199",
+        "email": client.email
+    }
+    
+    try:
+        subject = parse_template(template.subject, vars_dict)
+        body = parse_template(template.body, vars_dict)
+        
+        # Send
+        msg_id = send_gmail_email(gmail_service, to_email=client.email, subject=subject, body_html=body)
+        
+        # Write to EmailHistory
+        hist = EmailHistory(
+            recipient_email=client.email,
+            subject=subject,
+            sent_at=datetime.utcnow(),
+            status="SUCCESS",
+            message_id=msg_id
+        )
+        db.add(hist)
+        db.commit()
+        return True, f"Successfully sent test reminder to {client.email}! Message ID: {msg_id}"
+    except Exception as send_err:
+        db.rollback()
+        # Write to EmailHistory as FAILED
+        hist = EmailHistory(
+            recipient_email=client.email,
+            subject=template.subject,
+            sent_at=datetime.utcnow(),
+            status="FAILED",
+            error_details=str(send_err)
+        )
+        db.add(hist)
+        db.commit()
+        return False, f"Failed to send: {send_err}"
+
 if __name__ == "__main__":
     # If run standalone, execute scheduler cycle
     print("[Scheduler] Starting Daily Reminder Processing Cycle...")
