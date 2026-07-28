@@ -420,14 +420,53 @@ def render_reports(db):
             
             col_m_exp, col_m_inc = st.columns(2)
             
+            # Group by category and sum net amounts
+            cat_groups = df_m.groupby('category')['amount'].sum().reset_index()
+            
+            # Classify into Income vs Expense based on account type/net sign
+            income_rows = []
+            expense_rows = []
+            
+            for _, row in cat_groups.iterrows():
+                cat = row['category']
+                net_val = row['amount']
+                cat_lower = cat.lower()
+                
+                # Check if it is a revenue/income account
+                is_income_acc = (
+                    ("revenue" in cat_lower or "sales" in cat_lower or "fees" in cat_lower or "income" in cat_lower or "deposit" in cat_lower)
+                    and "bank fees" not in cat_lower
+                ) or (cat_lower == "uncategorized" and net_val >= 0)
+                
+                if is_income_acc:
+                    # Revenue/Sales: Normal balance is positive (net credit)
+                    if net_val != 0.0:
+                        income_rows.append({
+                            "category": cat,
+                            "abs_amount": abs(net_val) # Net revenue magnitude
+                        })
+                else:
+                    # Expense: Normal balance is negative (net debit/payment)
+                    if net_val != 0.0:
+                        expense_rows.append({
+                            "category": cat,
+                            "abs_amount": abs(net_val) # Net expense magnitude
+                        })
+                        
+            cat_inc = pd.DataFrame(income_rows) if income_rows else pd.DataFrame(columns=['category', 'abs_amount'])
+            cat_exp = pd.DataFrame(expense_rows) if expense_rows else pd.DataFrame(columns=['category', 'abs_amount'])
+            
+            # Sort descending by amount
+            if not cat_inc.empty:
+                cat_inc = cat_inc.sort_values(by='abs_amount', ascending=False).reset_index(drop=True)
+            if not cat_exp.empty:
+                cat_exp = cat_exp.sort_values(by='abs_amount', ascending=False).reset_index(drop=True)
+                
             with col_m_exp:
                 st.markdown(f"**Expenses Breakdown for {sel_month}**")
-                df_m_exp = df_m[df_m['type'] == 'Expense']
-                if df_m_exp.empty:
+                if cat_exp.empty:
                     st.info("No expenses in this month.")
                 else:
-                    cat_exp = df_m_exp.groupby('category')['abs_amount'].sum().sort_values(ascending=False).reset_index()
-                    
                     fig_exp, ax_exp = plt.subplots(figsize=(6, 3.5))
                     sns.barplot(data=cat_exp, x='abs_amount', y='category', palette='Reds_r', ax=ax_exp)
                     ax_exp.set_title("Expenses by Category", fontsize=10, fontweight='bold')
@@ -441,12 +480,9 @@ def render_reports(db):
                     
             with col_m_inc:
                 st.markdown(f"**Income Breakdown for {sel_month}**")
-                df_m_inc = df_m[df_m['type'] == 'Income']
-                if df_m_inc.empty:
+                if cat_inc.empty:
                     st.info("No income deposits in this month.")
                 else:
-                    cat_inc = df_m_inc.groupby('category')['abs_amount'].sum().sort_values(ascending=False).reset_index()
-                    
                     fig_inc, ax_inc = plt.subplots(figsize=(6, 3.5))
                     sns.barplot(data=cat_inc, x='abs_amount', y='category', palette='Greens_r', ax=ax_inc)
                     ax_inc.set_title("Income by Category", fontsize=10, fontweight='bold')
