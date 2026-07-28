@@ -97,7 +97,10 @@ def render_ledger_editor(db):
                     "RawAmount": t.amount  # kept for summary logic
                 })
                 
-            df = pd.DataFrame(grid_data)
+            if not grid_data:
+                df = pd.DataFrame(columns=["Select", "TxID", "Account", "Date", "Original Memo", "Merchant", "Withdrawal / Expense ($)", "Deposit / Income ($)", "Category", "GST ($)", "Claimed ITC ($)", "RawAmount"])
+            else:
+                df = pd.DataFrame(grid_data)
             
             # 📊 Category Summary totals for all accounts combined
             if not df.empty:
