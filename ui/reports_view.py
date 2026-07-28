@@ -344,12 +344,18 @@ def render_reports(db):
         if not txs:
             st.info("No transaction records found for this client. Import bank statements first to view this analysis.")
         else:
+            # Load bank accounts mapping
+            from core.models import ClientBankAccount
+            bank_accounts = db.query(ClientBankAccount).filter(ClientBankAccount.client_id == client_id).all()
+            bank_map = {a.id: a.account_name for a in bank_accounts}
+
             # Prepare transaction dataframe
             tx_data = []
             for tx in txs:
                 tx_data.append({
                     "date": tx.date,
                     "amount": tx.amount,
+                    "account": bank_map.get(tx.account_id, "Unknown"),
                     "category": tx.category or "Uncategorized",
                     "description": tx.cleaned_description or ""
                 })
@@ -467,13 +473,14 @@ def render_reports(db):
             if df_detailed.empty:
                 st.info("No transactions found for this selection.")
             else:
-                df_show = df_detailed[["date", "category", "description", "amount"]].copy()
+                df_show = df_detailed[["date", "account", "category", "description", "amount"]].copy()
                 df_show["date"] = df_show["date"].dt.strftime("%Y-%m-%d")
                 df_show["amount"] = df_show["amount"].apply(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
                 
                 st.dataframe(
                     df_show.rename(columns={
                         "date": "Date",
+                        "account": "Account",
                         "category": "Category",
                         "description": "Description / Memo",
                         "amount": "Amount ($ CAD)"

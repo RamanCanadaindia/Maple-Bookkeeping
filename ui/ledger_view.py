@@ -487,7 +487,10 @@ def render_ledger_editor(db):
                     "Running Balance ($)": current_bal
                 })
                 
-            df_recon = pd.DataFrame(running_data)
+            if not running_data:
+                df_recon = pd.DataFrame(columns=["ID", "Account", "Date", "Original Description", "Merchant", "Withdrawal / Expense ($)", "Deposit / Income ($)", "Category", "Running Balance ($)"])
+            else:
+                df_recon = pd.DataFrame(running_data)
             
             # Reconciliation summary metrics cards
             col_m1, col_m2, col_m3 = st.columns(3)
