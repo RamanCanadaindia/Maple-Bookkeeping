@@ -674,61 +674,117 @@ def render_settings_tab(db: Session, is_authorized: bool):
             st.write(f"- **{key}**: {status} ({' found in ' + ' & '.join(details) if details else 'not found'})")
 
     settings = db.query(ReminderSettings).first()
-    
-    # Display status
-    if settings and settings.gmail_oauth_token:
-        st.success(f"🟢 Gmail Account Connected: `{settings.gmail_authorized_email}`")
-        status_label = "Authorized"
-    else:
-        st.warning("🔴 Gmail API: Disconnected (OAuth Refresh Token not found in database).")
-        status_label = "Unauthorized"
-        
-    st.write("")
+    if not settings:
+        settings = ReminderSettings(email_service_provider="GMAIL")
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+
+    # Active Provider Selector
+    current_provider = getattr(settings, "email_service_provider", "GMAIL") or "GMAIL"
     
     if is_authorized:
-        # Re-connection link generator
-        st.markdown("#### Connection Setup")
-        try:
-            redirect_uri = st.secrets.get("GOOGLE_REDIRECT_URI", "http://localhost:8501/")
-        except Exception:
-            redirect_uri = "http://localhost:8501/"
+        st.write("")
+        st.markdown("#### 📧 Email Delivery Method")
+        provider_sel = st.radio(
+            "Select email delivery service provider:",
+            ["Gmail (OAuth Integration)", "Resend.com API (Simple Key-Based)"],
+            index=0 if current_provider == "GMAIL" else 1,
+            key="settings_provider_select_radio"
+        )
+        selected_provider = "GMAIL" if "Gmail" in provider_sel else "RESEND"
+        
+        if selected_provider != current_provider:
+            settings.email_service_provider = selected_provider
+            db.commit()
+            st.success(f"Email delivery provider switched to {selected_provider}!")
+            st.rerun()
             
-        try:
-            flow = get_oauth_flow(redirect_uri)
-            auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+    st.write("")
+    st.markdown("---")
+    
+    # Render Status and Configuration Setup based on Provider
+    provider = getattr(settings, "email_service_provider", "GMAIL") or "GMAIL"
+    
+    if provider == "GMAIL":
+        # Gmail Status
+        if settings.gmail_oauth_token:
+            st.success(f"🟢 Gmail Account Connected: `{settings.gmail_authorized_email}`")
+        else:
+            st.warning("🔴 Gmail API: Disconnected (OAuth Refresh Token not found in database).")
             
-            st.markdown(
-                f'<a href="{auth_url}" target="_self" style="display:inline-block; padding:0.6rem 1.2rem; background-color:#1e3d59; color:white; border-radius:6px; font-weight:600; text-decoration:none; margin-bottom:1rem;">🔄 Connect / Reconnect Gmail Account</a>',
-                unsafe_allow_html=True
-            )
-        except Exception as flow_err:
-            st.error(f"Cannot generate Google OAuth link: {flow_err}")
+        if is_authorized:
+            st.markdown("#### Connection Setup")
+            try:
+                redirect_uri = st.secrets.get("GOOGLE_REDIRECT_URI", "http://localhost:8501/")
+            except Exception:
+                redirect_uri = "http://localhost:8501/"
+                
+            try:
+                flow = get_oauth_flow(redirect_uri)
+                auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+                st.markdown(
+                    f'<a href="{auth_url}" target="_self" style="display:inline-block; padding:0.6rem 1.2rem; background-color:#1e3d59; color:white; border-radius:6px; font-weight:600; text-decoration:none; margin-bottom:1rem;">🔄 Connect / Reconnect Gmail Account</a>',
+                    unsafe_allow_html=True
+                )
+            except Exception as flow_err:
+                st.error(f"Cannot generate Google OAuth link: {flow_err}")
+                
+    else: # RESEND
+        resend_key_encrypted = getattr(settings, "resend_api_key", None)
+        from_email = getattr(settings, "resend_from_email", None) or "onboarding@resend.dev"
+        
+        if resend_key_encrypted:
+            st.success(f"🟢 Resend API Connected: sending reminders from `{from_email}`")
+        else:
+            st.warning("🔴 Resend API: Disconnected (API Key not configured).")
             
-        # Send Test Email
+        if is_authorized:
+            st.markdown("#### Resend API Settings")
+            key_val = "••••••••••••••••" if resend_key_encrypted else ""
+            resend_key_input = st.text_input("Resend API Key (re-enter to change)", value=key_val, type="password", help="Acquire a key from resend.com")
+            resend_from_input = st.text_input("From Email Address", value=from_email, placeholder="onboarding@resend.dev or domain email")
+            
+            if st.button("💾 Save Resend API Settings", type="primary"):
+                # If key was modified
+                if resend_key_input != "••••••••••••••••" and resend_key_input.strip() != "":
+                    from services.gmail_service import encrypt_token
+                    settings.resend_api_key = encrypt_token(resend_key_input.strip())
+                elif resend_key_input.strip() == "":
+                    settings.resend_api_key = None
+                    
+                settings.resend_from_email = resend_from_input.strip()
+                db.commit()
+                st.success("Resend configuration updated successfully!")
+                st.rerun()
+
+    # Send Test Email
+    if is_authorized:
+        st.write("")
         st.markdown("---")
         st.markdown("#### 🧪 Dispatch Test Email")
-        test_email_addr = st.text_input("Send a test email to:", value=settings.gmail_authorized_email if settings else "")
+        
+        default_test_recipient = ""
+        if provider == "GMAIL" and settings.gmail_authorized_email:
+            default_test_recipient = settings.gmail_authorized_email
+        elif provider == "RESEND" and settings.resend_from_email:
+            default_test_recipient = "delivered@resend.dev" # resend sandbox test email
+            
+        test_email_addr = st.text_input("Send a test email to:", value=default_test_recipient)
         test_btn = st.button("🚀 Send Test Email Now")
         
         if test_btn:
             if not test_email_addr or "@" not in test_email_addr:
                 st.error("Provide a valid email address.")
-            elif not settings or not settings.gmail_oauth_token:
-                st.error("Gmail is not connected yet. Connect your Gmail account first.")
             else:
                 with st.spinner("Dispatching test email..."):
                     try:
-                        service, refreshed = get_gmail_service(settings.gmail_oauth_token)
-                        if refreshed != settings.gmail_oauth_token:
-                            settings.gmail_oauth_token = refreshed
-                            db.commit()
-                            
-                        # Send
-                        msg_id = send_gmail_email(
-                            service=service,
+                        from services.reminder_scheduler import send_email_via_provider
+                        msg_id = send_email_via_provider(
+                            db=db,
                             to_email=test_email_addr,
-                            subject="Maple Bookkeeping - Gmail Integration Connection Test",
-                            body_html="<h3>Connection Successful!</h3><p>This test email confirms that Maple Bookkeeping is fully authorized to send reminders from your connected Gmail account.</p>"
+                            subject=f"Maple Bookkeeping - {provider} Integration Connection Test",
+                            body_html=f"<h3>Connection Successful!</h3><p>This test email confirms that Maple Bookkeeping is fully authorized to send reminders from your connected {provider} account.</p>"
                         )
                         st.success(f"Test email successfully dispatched! Message ID: `{msg_id}`")
                     except Exception as test_err:
@@ -742,6 +798,7 @@ def render_settings_tab(db: Session, is_authorized: bool):
         if run_btn:
             with st.spinner("Processing daily reminder check..."):
                 try:
+                    from services.reminder_scheduler import run_scheduler_cycle
                     res = run_scheduler_cycle(trigger_source="MANUAL")
                     status_symbol = "🟢" if res["status"] == "SUCCESS" else "🔴"
                     st.success(

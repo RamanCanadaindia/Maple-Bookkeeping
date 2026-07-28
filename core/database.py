@@ -64,6 +64,24 @@ def get_database_status():
 
 
 
+def check_and_update_schema(db_engine):
+    from sqlalchemy import text
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("SELECT email_service_provider FROM reminder_settings LIMIT 1"))
+    except Exception:
+        print("[Schema Update] Adding Resend integration columns to reminder_settings table...")
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE reminder_settings ADD COLUMN email_service_provider VARCHAR(50) DEFAULT 'GMAIL'"))
+                conn.execute(text("ALTER TABLE reminder_settings ADD COLUMN resend_api_key TEXT NULL"))
+                conn.execute(text("ALTER TABLE reminder_settings ADD COLUMN resend_from_email VARCHAR(255) NULL"))
+        except Exception as e:
+            print(f"[Schema Update Error] Could not alter table: {e}")
+
+# Run schema update on import
+check_and_update_schema(engine)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

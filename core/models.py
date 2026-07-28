@@ -266,6 +266,9 @@ class ReminderSettings(Base):
     id = Column(Integer, primary_key=True, index=True)
     gmail_oauth_token = Column(Text, nullable=True) # JSON encrypted string
     gmail_authorized_email = Column(String, nullable=True)
+    email_service_provider = Column(String(50), default="GMAIL") # GMAIL or RESEND
+    resend_api_key = Column(Text, nullable=True) # Encrypted string
+    resend_from_email = Column(String(255), nullable=True)
 
 
 class SchedulerRun(Base):

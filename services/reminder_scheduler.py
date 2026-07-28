@@ -13,6 +13,67 @@ from core.database import SessionLocal
 from core.models import Reminder, ReminderType, Notification, EmailTemplate, EmailHistory, ReminderSettings, SchedulerRun, Client
 from services.gmail_service import get_gmail_service, send_gmail_email, parse_template
 
+def send_email_via_provider(db: Session, to_email: str, subject: str, body_html: str) -> str:
+    """
+    Sends an email using the active configured email service provider (GMAIL or RESEND).
+    Returns the message ID/identifier.
+    """
+    import requests
+    import json
+    
+    settings = db.query(ReminderSettings).first()
+    if not settings:
+        raise ValueError("System settings are not initialized.")
+        
+    provider = getattr(settings, "email_service_provider", "GMAIL")
+    if provider == "RESEND":
+        resend_api_key_encrypted = getattr(settings, "resend_api_key", None)
+        if not resend_api_key_encrypted:
+            raise ValueError("Resend API Key is not configured in Settings.")
+            
+        # Decrypt key
+        from services.gmail_service import decrypt_token
+        resend_api_key = decrypt_token(resend_api_key_encrypted)
+        
+        from_email = getattr(settings, "resend_from_email", None)
+        if not from_email or not from_email.strip():
+            from_email = "onboarding@resend.dev"
+            
+        headers = {
+            "Authorization": f"Bearer {resend_api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "html": body_html
+        }
+        
+        response = requests.post("https://api.resend.com/emails", json=payload, headers=headers)
+        if response.status_code not in (200, 201):
+            raise RuntimeError(f"Resend API error: {response.text}")
+            
+        res_data = response.json()
+        return res_data.get("id", "resend_sent")
+        
+    else: # GMAIL
+        if not settings.gmail_oauth_token:
+            raise ValueError("Gmail account is not connected. Connect in Settings first.")
+            
+        gmail_service, refreshed_token = get_gmail_service(settings.gmail_oauth_token)
+        if refreshed_token != settings.gmail_oauth_token:
+            settings.gmail_oauth_token = refreshed_token
+            db.commit()
+            
+        msg_id = send_gmail_email(
+            service=gmail_service,
+            to_email=to_email,
+            subject=subject,
+            body_html=body_html
+        )
+        return msg_id
+
 def add_months(source_date: datetime, months: int) -> datetime:
     """
     Standard library calendar-aware addition of months.
@@ -202,10 +263,12 @@ def run_scheduler_cycle(trigger_source: str = "AUTO") -> dict:
         # 1. Seed default types/templates
         seed_initial_data(db)
 
-        # 2. Get Gmail service
+        # 2. Check active provider and setup if GMAIL
         gmail_settings = db.query(ReminderSettings).first()
         gmail_service = None
-        if gmail_settings and gmail_settings.gmail_oauth_token:
+        provider = getattr(gmail_settings, "email_service_provider", "GMAIL") if gmail_settings else "GMAIL"
+        
+        if provider == "GMAIL" and gmail_settings and gmail_settings.gmail_oauth_token:
             try:
                 gmail_service, refreshed_token = get_gmail_service(gmail_settings.gmail_oauth_token)
                 if refreshed_token != gmail_settings.gmail_oauth_token:
@@ -326,16 +389,13 @@ def run_scheduler_cycle(trigger_source: str = "AUTO") -> dict:
 
                 # Attempt Email Dispatch
                 try:
-                    if not gmail_service:
-                        raise RuntimeError("Gmail account is not connected. Reauthorize OAuth in settings.")
-
                     # Parse template variables (raises error if missing)
                     parsed_subject = parse_template(template.subject, vars_dict)
                     parsed_body = parse_template(template.body_html, vars_dict)
 
-                    # Send email
-                    msg_id = send_gmail_email(
-                        service=gmail_service,
+                    # Send email via active provider
+                    msg_id = send_email_via_provider(
+                        db=db,
                         to_email=client_email,
                         subject=parsed_subject,
                         body_html=parsed_body
@@ -457,18 +517,16 @@ def dispatch_notification_manually(db: Session, notif_id: int) -> tuple[bool, st
     if not client or not client.email:
         return False, "Client email is not configured."
         
-    # Check Gmail Connection
+    # Check settings connection
     gmail_settings = db.query(ReminderSettings).first()
-    if not gmail_settings or not gmail_settings.gmail_oauth_token:
-        return False, "Gmail integration is not authorized in Settings."
+    if not gmail_settings:
+        return False, "Reminder settings not configured."
         
-    try:
-        gmail_service, refreshed_token = get_gmail_service(gmail_settings.gmail_oauth_token)
-        if refreshed_token != gmail_settings.gmail_oauth_token:
-            gmail_settings.gmail_oauth_token = refreshed_token
-            db.commit()
-    except Exception as e:
-        return False, f"Gmail Connection failed: {e}"
+    provider = getattr(gmail_settings, "email_service_provider", "GMAIL")
+    if provider == "GMAIL" and not gmail_settings.gmail_oauth_token:
+        return False, "Gmail integration is not authorized in Settings."
+    elif provider == "RESEND" and not getattr(gmail_settings, "resend_api_key", None):
+        return False, "Resend API Key is not configured in Settings."
         
     # Build vars
     period_start, period_end = get_period_dates(rem.current_due_date, rem.frequency)
@@ -490,7 +548,7 @@ def dispatch_notification_manually(db: Session, notif_id: int) -> tuple[bool, st
         body = parse_template(notif.template.body, vars_dict)
         
         # Send
-        msg_id = send_gmail_email(gmail_service, to_email=client.email, subject=subject, body_html=body)
+        msg_id = send_email_via_provider(db, to_email=client.email, subject=subject, body_html=body)
         
         # Mark SENT
         notif.status = "SENT"
@@ -551,18 +609,16 @@ def dispatch_reminder_test_email(db: Session, reminder_id: int) -> tuple[bool, s
     if not template:
         return False, "No email template found for this reminder."
         
-    # Check Gmail Connection
+    # Check settings connection
     gmail_settings = db.query(ReminderSettings).first()
-    if not gmail_settings or not gmail_settings.gmail_oauth_token:
-        return False, "Gmail integration is not authorized in Settings."
+    if not gmail_settings:
+        return False, "Reminder settings not configured."
         
-    try:
-        gmail_service, refreshed_token = get_gmail_service(gmail_settings.gmail_oauth_token)
-        if refreshed_token != gmail_settings.gmail_oauth_token:
-            gmail_settings.gmail_oauth_token = refreshed_token
-            db.commit()
-    except Exception as e:
-        return False, f"Gmail Connection failed: {e}"
+    provider = getattr(gmail_settings, "email_service_provider", "GMAIL")
+    if provider == "GMAIL" and not gmail_settings.gmail_oauth_token:
+        return False, "Gmail integration is not authorized in Settings."
+    elif provider == "RESEND" and not getattr(gmail_settings, "resend_api_key", None):
+        return False, "Resend API Key is not configured in Settings."
         
     # Build vars
     period_start, period_end = get_period_dates(rem.current_due_date, rem.frequency)
@@ -584,7 +640,7 @@ def dispatch_reminder_test_email(db: Session, reminder_id: int) -> tuple[bool, s
         body = parse_template(template.body, vars_dict)
         
         # Send
-        msg_id = send_gmail_email(gmail_service, to_email=client.email, subject=subject, body_html=body)
+        msg_id = send_email_via_provider(db, to_email=client.email, subject=subject, body_html=body)
         
         # Write to EmailHistory
         hist = EmailHistory(
