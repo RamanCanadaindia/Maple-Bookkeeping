@@ -180,7 +180,9 @@ def send_gmail_email(service, to_email: str, subject: str, body_html: str, cc: s
 # Approved Template Variable List
 APPROVED_VARS = [
     "client_name", "business_name", "period_start", "period_end",
-    "due_date", "reminder_type", "staff_name", "company_name", "phone", "email"
+    "due_date", "reminder_type", "staff_name", "company_name", "phone", "email",
+    "logoUrl", "whatsappLink", "instagramLink", "reminderTitle", "clientName",
+    "filingType", "businessName", "reportingPeriod", "dueDate", "documentList", "emailSubject"
 ]
 
 def parse_template(template_str: str, variables_dict: dict) -> str:

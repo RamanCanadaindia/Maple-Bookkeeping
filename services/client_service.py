@@ -5,17 +5,56 @@ import logging
 
 logger = logging.getLogger("ClientService")
 
-def get_clients(db: Session):
+def get_clients(db: Session, current_user=None):
     """
-    Retrieves all client records from the database.
+    Retrieves clients based on user role authorization:
+    - Admin, Accountant, Viewer: all clients
+    - Bookkeeper: only assigned clients via user_client_access mapping
+    - Client: only their linked client_id profile
     """
-    return db.query(Client).all()
+    if not current_user:
+        return db.query(Client).all()
+        
+    role = getattr(current_user, "role", "Viewer")
+    if role in ("Admin", "Accountant", "Viewer"):
+        return db.query(Client).all()
+    elif role == "Bookkeeper":
+        from core.models import UserClientAccess
+        client_ids = db.query(UserClientAccess.client_id).filter(UserClientAccess.user_id == current_user.id).all()
+        ids = [r[0] for r in client_ids]
+        return db.query(Client).filter(Client.id.in_(ids)).all()
+    elif role == "Client":
+        c_id = getattr(current_user, "client_id", None)
+        if c_id:
+            return db.query(Client).filter(Client.id == c_id).all()
+        return []
+    return []
 
 def get_client_by_id(db: Session, client_id: int) -> Client:
     """
     Retrieves a single client profile by ID.
     """
     return db.query(Client).filter(Client.id == client_id).first()
+
+def verify_client_access(db: Session, client_id: int, current_user) -> bool:
+    """
+    Verifies if the current user has access to view/edit the specified client.
+    """
+    if not current_user:
+        return False
+    role = getattr(current_user, "role", "Viewer")
+    if role in ("Admin", "Accountant", "Viewer"):
+        return True
+    elif role == "Bookkeeper":
+        from core.models import UserClientAccess
+        exists = db.query(UserClientAccess).filter(
+            UserClientAccess.user_id == current_user.id,
+            UserClientAccess.client_id == client_id
+        ).first()
+        return exists is not None
+    elif role == "Client":
+        return getattr(current_user, "client_id", None) == client_id
+    return False
 
 def create_client(
     db: Session,

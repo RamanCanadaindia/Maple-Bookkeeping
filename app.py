@@ -8,6 +8,7 @@ from ui.statement_import_view import render_statement_import
 from ui.reports_view import render_reports
 from ui.ledger_view import render_ledger_editor
 from ui.receipt_view import render_receipt_matcher
+from ui.user_view import render_user_management
 
 # Setup Page configurations
 st.set_page_config(
@@ -111,6 +112,16 @@ try:
     # Seed default test users & demo client
     seed_default_users(db)
     seed_default_client(db)
+    
+    # Default session user initialization from database (auto-login/guest fallback)
+    from core.models import User
+    admin_user = db.query(User).filter(User.role == "Admin").first()
+    if admin_user:
+        if "current_user" not in st.session_state or st.session_state.current_user is None:
+            st.session_state.current_user = admin_user
+            st.session_state.current_user_name = admin_user.name
+            st.session_state.current_user_role = admin_user.role
+            st.session_state.current_user_email = admin_user.email
 finally:
     db.close()
 
@@ -152,26 +163,35 @@ try:
         # Main Title bar
         st.markdown("<h1 class='main-header'>🍁 Canadian Bookkeeping Operations</h1>", unsafe_allow_html=True)
         
-        # Tabs for Operations
-        tab_dash, tab_clients, tab_import, tab_ledger, tab_receipt, tab_reports = st.tabs(["📊 Operations Dashboard", "📁 Client Management", "📥 Statement Ingestion", "📖 General Ledger", "🧾 Receipt Matcher", "📈 Financial Statements"])
+        # Determine active tabs based on Admin privilege
+        tabs_labels = ["📊 Operations Dashboard", "📁 Client Management", "📥 Statement Ingestion", "📖 General Ledger", "🧾 Receipt Matcher", "📈 Financial Statements"]
+        is_admin = st.session_state.get("current_user_role") == "Admin"
+        if is_admin:
+            tabs_labels.append("👤 User & Access Control")
+            
+        tabs = st.tabs(tabs_labels)
         
-        with tab_dash:
+        with tabs[0]:
             render_dashboard(db_session)
             
-        with tab_clients:
+        with tabs[1]:
             render_client_management(db_session)
             
-        with tab_import:
+        with tabs[2]:
             render_statement_import(db_session)
             
-        with tab_ledger:
+        with tabs[3]:
             render_ledger_editor(db_session)
             
-        with tab_receipt:
+        with tabs[4]:
             render_receipt_matcher(db_session)
             
-        with tab_reports:
+        with tabs[5]:
             render_reports(db_session)
+            
+        if is_admin and len(tabs) > 6:
+            with tabs[6]:
+                render_user_management(db_session)
             
 finally:
     db_session.close()

@@ -10,12 +10,21 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String, default="Accountant")  # Admin, Accountant, Viewer
+    role = Column(String, default="Accountant")  # Admin, Accountant, Bookkeeper, Viewer, Client
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     audit_logs = relationship("AuditLog", back_populates="user")
+    client = relationship("Client", foreign_keys=[client_id])
+
+
+class UserClientAccess(Base):
+    __tablename__ = "user_client_access"
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Client(Base):

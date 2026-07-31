@@ -10,9 +10,23 @@ def render_dashboard(db):
     st.subheader("📊 Firm Operations Dashboard")
     st.markdown("Overview of clients, filing metrics, and systemic audit logging across your accounting practice.")
 
-    # Get data
-    clients = get_clients(db)
-    audit_logs = get_recent_logs(db, limit=20)
+    # Get data based on user role authorization
+    current_user = st.session_state.get("current_user")
+    clients = get_clients(db, current_user)
+    raw_logs = get_recent_logs(db, limit=100)
+    
+    # Filter audit logs to only show assigned clients
+    role = getattr(current_user, "role", "Viewer")
+    if role in ("Admin", "Accountant", "Viewer"):
+        audit_logs = raw_logs[:20]
+    elif role == "Bookkeeper":
+        from core.models import UserClientAccess
+        allowed_ids = [r[0] for r in db.query(UserClientAccess.client_id).filter(UserClientAccess.user_id == current_user.id).all()]
+        audit_logs = [log for log in raw_logs if log.client_id in allowed_ids][:20]
+    elif role == "Client":
+        audit_logs = [log for log in raw_logs if log.client_id == current_user.client_id][:20]
+    else:
+        audit_logs = []
     
     # 1. Summary Metrics Card
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)

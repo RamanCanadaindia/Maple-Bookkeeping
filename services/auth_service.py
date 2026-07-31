@@ -93,3 +93,47 @@ def seed_default_users(db: Session):
             create_user(db, "Lead Accountant", "accountant@firm.ca", "accountant123", "Accountant")
         if not db.query(User).filter(User.email == "viewer@firm.ca").first():
             create_user(db, "Client Auditor", "viewer@firm.ca", "viewer123", "Viewer")
+
+def get_all_users(db: Session):
+    """
+    Retrieves all registered user profiles.
+    """
+    return db.query(User).all()
+
+def update_user_role_and_access(db: Session, user_id: int, role: str, client_id: int = None, assigned_client_ids: list[int] = []):
+    """
+    Updates a user's role and associated client mapping.
+    Handles Bookkeeper role (many-to-many) and Client role (single client_id).
+    """
+    from core.models import UserClientAccess
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValueError("User not found.")
+        
+    user.role = role
+    if role == "Client":
+        user.client_id = client_id
+    else:
+        user.client_id = None
+        
+    # Clear and sync many-to-many Bookkeeper access
+    db.query(UserClientAccess).filter(UserClientAccess.user_id == user_id).delete()
+    if role == "Bookkeeper":
+        for c_id in assigned_client_ids:
+            db.add(UserClientAccess(user_id=user_id, client_id=c_id))
+            
+    db.commit()
+    return user
+
+def delete_user(db: Session, user_id: int):
+    """
+    Deletes a user account and their associated client mappings.
+    """
+    from core.models import UserClientAccess
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        db.query(UserClientAccess).filter(UserClientAccess.user_id == user_id).delete()
+        db.delete(user)
+        db.commit()
+        return True
+    return False

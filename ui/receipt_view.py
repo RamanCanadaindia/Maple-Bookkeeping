@@ -13,9 +13,10 @@ def render_receipt_matcher(db):
     """
     st.subheader("🧾 Receipt OCR Matcher & Audit Control")
     
-    clients = get_clients(db)
+    current_user = st.session_state.get("current_user")
+    clients = get_clients(db, current_user)
     if not clients:
-        st.warning("Please create a client profile before attempting to match receipts.")
+        st.warning("No client accounts are assigned to your profile.")
         return
         
     # Select Client
@@ -27,6 +28,12 @@ def render_receipt_matcher(db):
     
     client_name = st.selectbox("Client Account", list(client_options.keys()), key=widget_key, on_change=on_change_cb)
     client_id = client_options[client_name]
+    
+    from services.client_service import verify_client_access
+    if not verify_client_access(db, client_id, current_user):
+        st.error("Access Denied: You do not have permissions to access this client's records.")
+        return
+        
     client = get_client_by_id(db, client_id)
     
     col_u1, col_u2 = st.columns([1, 1])

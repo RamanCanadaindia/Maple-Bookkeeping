@@ -31,9 +31,10 @@ def render_reports(db):
     """
     st.subheader("📈 Financial Statements & Tax Reports")
     
-    clients = get_clients(db)
+    current_user = st.session_state.get("current_user")
+    clients = get_clients(db, current_user)
     if not clients:
-        st.warning("Please create a client profile before accessing reports.")
+        st.warning("No client accounts are assigned to your profile.")
         return
         
     # Select Client
@@ -45,6 +46,12 @@ def render_reports(db):
     
     client_name = st.selectbox("Select Client", list(client_options.keys()), key=widget_key, on_change=on_change_cb)
     client_id = client_options[client_name]
+    
+    from services.client_service import verify_client_access
+    if not verify_client_access(db, client_id, current_user):
+        st.error("Access Denied: You do not have permissions to access this client's records.")
+        return
+        
     client = get_client_by_id(db, client_id)
     
     tab_pl, tab_bs, tab_tb, tab_gst, tab_monthly = st.tabs(["📊 Income Statement (P&L)", "⚖️ Balance Sheet", "🏁 Trial Balance", "🍁 GST Return Summary", "📅 Monthly Cash Flow"])

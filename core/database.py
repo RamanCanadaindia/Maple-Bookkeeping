@@ -79,6 +79,47 @@ def check_and_update_schema(db_engine):
         except Exception as e:
             print(f"[Schema Update Error] Could not alter table: {e}")
 
+    # Check client_id in users
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("SELECT client_id FROM users LIMIT 1"))
+    except Exception:
+        print("[Schema Update] Adding client_id column to users table...")
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN client_id INTEGER NULL"))
+        except Exception as e:
+            print(f"[Schema Update Error] Could not add client_id column: {e}")
+
+    # Check user_client_access table
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("SELECT 1 FROM user_client_access LIMIT 1"))
+    except Exception:
+        print("[Schema Update] Creating user_client_access table...")
+        try:
+            with db_engine.begin() as conn:
+                if "postgresql" in str(db_engine.url):
+                    conn.execute(text("""
+                        CREATE TABLE user_client_access (
+                            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                            client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                            PRIMARY KEY (user_id, client_id)
+                        )
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE user_client_access (
+                            user_id INTEGER NOT NULL,
+                            client_id INTEGER NOT NULL,
+                            PRIMARY KEY (user_id, client_id),
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                        )
+                    """))
+        except Exception as e:
+            print(f"[Schema Update Error] Could not create user_client_access table: {e}")
+
 # Run schema update on import
 check_and_update_schema(engine)
 

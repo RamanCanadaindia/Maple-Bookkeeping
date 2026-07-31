@@ -14,7 +14,8 @@ def render_client_management(db):
     """
     st.subheader("📁 Client Accounts Management")
     
-    clients = get_clients(db)
+    current_user = st.session_state.get("current_user")
+    clients = get_clients(db, current_user)
     
     # Left Column: Client List Selection, Right Column: Setup Forms
     col_sel, col_form = st.columns([4, 8])
@@ -23,10 +24,18 @@ def render_client_management(db):
     
     with col_sel:
         st.markdown("**Client Registry**")
-        client_options = {"➕ Register New Client Profile": 0}
+        client_options = {}
+        role = getattr(current_user, "role", "Viewer")
+        if role in ("Admin", "Accountant"):
+            client_options["➕ Register New Client Profile"] = 0
+            
         for c in clients:
             status_symbol = "🔒" if c.status == "Locked" else "🟢"
             client_options[f"{status_symbol} {c.business_name}"] = c.id
+            
+        if not client_options:
+            st.warning("No client accounts are assigned to your profile.")
+            return
             
         from services.client_service import sync_global_active_client
         widget_key = "client_registry_select"
@@ -364,23 +373,26 @@ def render_client_management(db):
                 user_role = st.session_state.get("current_user_role", "Viewer")
                 user_name = st.session_state.get("current_user_name", "Anonymous")
                 
-                if client.status == "Active":
-                    st.write("Locking this client prevents changes to their bank configurations and bookkeeping files.")
-                    lock_btn = st.button("🔒 Lock Client Profile", type="primary", use_container_width=True)
-                    if lock_btn:
-                        toggle_client_lock(db, client.id, lock=True, user_role=user_role, current_user_name=user_name)
-                        st.success("Client profile locked successfully!")
-                        st.rerun()
+                if user_role not in ("Admin", "Accountant"):
+                    st.info("ℹ️ Lock and unlock management is restricted to Administrators and Accountants.")
                 else:
-                    st.write("Unlocking this client allows accountants to resume modifications. **Requires Administrator privileges.**")
-                    unlock_btn = st.button("🔓 Unlock Client Profile", type="primary", use_container_width=True)
-                    if unlock_btn:
-                        try:
-                            toggle_client_lock(db, client.id, lock=False, user_role=user_role, current_user_name=user_name)
-                            st.success("Client profile unlocked successfully!")
+                    if client.status == "Active":
+                        st.write("Locking this client prevents changes to their bank configurations and bookkeeping files.")
+                        lock_btn = st.button("🔒 Lock Client Profile", type="primary", use_container_width=True)
+                        if lock_btn:
+                            toggle_client_lock(db, client.id, lock=True, user_role=user_role, current_user_name=user_name)
+                            st.success("Client profile locked successfully!")
                             st.rerun()
-                        except PermissionError as pe:
-                            st.error(f"Access Denied: {pe}")
+                    else:
+                        st.write("Unlocking this client allows accountants to resume modifications. **Requires Administrator privileges.**")
+                        unlock_btn = st.button("🔓 Unlock Client Profile", type="primary", use_container_width=True)
+                        if unlock_btn:
+                            try:
+                                toggle_client_lock(db, client.id, lock=False, user_role=user_role, current_user_name=user_name)
+                                st.success("Client profile unlocked successfully!")
+                                st.rerun()
+                            except PermissionError as pe:
+                                st.error(f"Access Denied: {pe}")
                             
             with tab_reminders:
                 from ui.reminder_view import render_client_reminder_tab
