@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resend Client Reminders Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="icon">📅</span>
+                <h2>Reminder Engine</h2>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-view="dashboard">
+                    <span class="icon">📊</span> Dashboard
+                </button>
+                <button class="nav-btn" data-view="clients">
+                    <span class="icon">👥</span> Client Registry
+                </button>
+                <button class="nav-btn" data-view="schedules">
+                    <span class="icon">📅</span> Filing Schedules
+                </button>
+                <button class="nav-btn" data-view="templates">
+                    <span class="icon">✉️</span> HTML Templates
+                </button>
+                <button class="nav-btn" data-view="quicksend">
+                    <span class="icon">⚡</span> Quick Send
+                </button>
+                <button class="nav-btn" data-view="settings">
+                    <span class="icon">⚙️</span> System Settings
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <p>Standalone Reminder Service v1.0</p>
+                <p class="sub">Built with Node.js & SQLite</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Toast notification box -->
+            <div id="toast-container" class="toast-container"></div>
+
+            <!-- DASHBOARD VIEW -->
+            <section id="view-dashboard" class="view-section active">
+                <div class="view-header">
+                    <h1>📊 Reminder Dashboard</h1>
+                    <p>Review pending reminders, approve each email manually, and monitor delivery history.</p>
+                </div>
+
+                <!-- Stats Cards Grid -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-info">
+                            <span class="label">Registered Clients</span>
+                            <span class="value" id="stat-clients">0</span>
+                        </div>
+                        <div class="metric-icon blue">👥</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-info">
+                            <span class="label">Active Schedules</span>
+                            <span class="value" id="stat-schedules">0</span>
+                        </div>
+                        <div class="metric-icon purple">📅</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-info">
+                            <span class="label">Pending Notifications</span>
+                            <span class="value" id="stat-pending">0</span>
+                        </div>
+                        <div class="metric-icon orange">⏳</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-info">
+                            <span class="label">Delivery Success</span>
+                            <span class="value" id="stat-success">100%</span>
+                        </div>
+                        <div class="metric-icon green">✨</div>
+                    </div>
+                </div>
+
+                <!-- Operations Card -->
+                <div class="card operations-card">
+                    <div class="ops-info">
+                        <h3>🚀 Prepare Reminder Queue</h3>
+                        <p>Checks filing dates and prepares reminders for your approval. No emails are sent automatically.</p>
+                    </div>
+                    <button id="btn-run-scheduler" class="btn btn-primary">Check for Due Reminders</button>
+                </div>
+
+                <!-- Tables Split Grid -->
+                <div class="tables-grid">
+                    <!-- Upcoming alerts table -->
+                    <div class="card table-card">
+                        <h3>📅 Upcoming Notification Queue</h3>
+                        <div class="table-container">
+                            <table id="table-upcoming">
+                                <thead>
+                                    <tr>
+                                        <th>Target Send Date</th>
+                                        <th>Client Name</th>
+                                        <th>Business Name</th>
+                                        <th>Filing Type</th>
+                                        <th>Filing Due Date</th>
+                                        <th>Offset (Days)</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" class="loading">Loading upcoming notifications...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- History logs table -->
+                    <div class="card table-card">
+                        <div class="card-header-flex">
+                            <h3>📜 Recent Dispatch History</h3>
+                            <button id="btn-clear-history" class="btn btn-sm btn-danger">Clear Logs</button>
+                        </div>
+                        <div class="table-container">
+                            <table id="table-history">
+                                <thead>
+                                    <tr>
+                                        <th>Sent At (UTC)</th>
+                                        <th>Recipient</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Message ID / Error Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="5" class="loading">Loading dispatch history...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CLIENTS VIEW -->
+            <section id="view-clients" class="view-section">
+                <div class="view-header">
+                    <h1>👥 Client Profiles Registry</h1>
+                    <p>Register and manage your client details for scheduling automated email reminders.</p>
+                </div>
+
+                <!-- Tabs Menu -->
+                <div class="tabs-nav">
+                    <button class="tab-btn active" data-tab="clients-list">📋 View Clients</button>
+                    <button class="tab-btn" data-tab="clients-add">➕ Add Client</button>
+                    <button class="tab-btn" data-tab="clients-edit">✏️ Edit / Delete Client</button>
+                </div>
+
+                <!-- TAB 1: Clients List -->
+                <div id="tab-clients-list" class="tab-content active">
+                    <div class="card">
+                        <h3>Active Client Files</h3>
+                        <div class="table-container">
+                            <table id="table-clients">
+                                <thead>
+                                    <tr>
+                                        <th>No.</th>
+                                        <th>Client Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th>Business Name</th>
+                                        <th>Fiscal Year End</th>
+                                        <th>Schedules Configured</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="7" class="loading">Loading clients list...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Add Client -->
+                <div id="tab-clients-add" class="tab-content">
+                    <div class="card form-card">
+                        <h3>➕ Create New Client Profile</h3>
+                        <form id="form-add-client">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="client-name">Client Full Name *</label>
+                                    <input type="text" id="client-name" required placeholder="John Doe">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-email">Client Email Address *</label>
+                                    <input type="email" id="client-email" required placeholder="john.doe@example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-phone">Phone Number (Optional)</label>
+                                    <input type="text" id="client-phone" placeholder="+1 (555) 019-2834">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-business">Business / Entity Name (Optional)</label>
+                                    <input type="text" id="client-business" placeholder="Doe Consulting LLC">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-yearend">Fiscal Year End (Optional)</label>
+                                    <select id="client-yearend">
+                                        <option value="">-- Select Year End --</option>
+                                        <option value="December 31">December 31</option>
+                                        <option value="January 31">January 31</option>
+                                        <option value="February 28">February 28 / 29</option>
+                                        <option value="March 31">March 31</option>
+                                        <option value="April 30">April 30</option>
+                                        <option value="May 31">May 31</option>
+                                        <option value="June 30">June 30</option>
+                                        <option value="July 31">July 31</option>
+                                        <option value="August 31">August 31</option>
+                                        <option value="September 30">September 30</option>
+                                        <option value="October 31">October 31</option>
+                                        <option value="November 30">November 30</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full">Create Profile</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- TAB 3: Edit / Delete Client -->
+                <div id="tab-clients-edit" class="tab-content">
+                    <div class="card form-card">
+                        <h3>✏️ Edit / Delete Client Profile</h3>
+                        <div class="form-group select-client-group">
+                            <label for="select-edit-client">Select Client File</label>
+                            <select id="select-edit-client">
+                                <option value="">-- Choose Client --</option>
+                            </select>
+                        </div>
+
+                        <form id="form-edit-client" class="disabled-form">
+                            <input type="hidden" id="edit-client-id">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="edit-client-name">Client Full Name *</label>
+                                    <input type="text" id="edit-client-name" required placeholder="John Doe" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-client-email">Client Email Address *</label>
+                                    <input type="email" id="edit-client-email" required placeholder="john.doe@example.com" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-client-phone">Phone Number (Optional)</label>
+                                    <input type="text" id="edit-client-phone" placeholder="+1 (555) 019-2834" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-client-business">Business / Entity Name (Optional)</label>
+                                    <input type="text" id="edit-client-business" placeholder="Doe Consulting LLC" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-client-yearend">Fiscal Year End (Optional)</label>
+                                    <select id="edit-client-yearend" disabled>
+                                        <option value="">-- Select Year End --</option>
+                                        <option value="December 31">December 31</option>
+                                        <option value="January 31">January 31</option>
+                                        <option value="February 28">February 28 / 29</option>
+                                        <option value="March 31">March 31</option>
+                                        <option value="April 30">April 30</option>
+                                        <option value="May 31">May 31</option>
+                                        <option value="June 30">June 30</option>
+                                        <option value="July 31">July 31</option>
+                                        <option value="August 31">August 31</option>
+                                        <option value="September 30">September 30</option>
+                                        <option value="October 31">October 31</option>
+                                        <option value="November 30">November 30</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="danger-zone-check">
+                                <input type="checkbox" id="confirm-delete-client" disabled>
+                                <label for="confirm-delete-client">Confirm deletion of this client and all associated reminders.</label>
+                            </div>
+                            <div class="btn-group">
+                                <button type="submit" id="btn-update-client" class="btn btn-primary" disabled>Update Client Profile</button>
+                                <button type="button" id="btn-delete-client" class="btn btn-danger" disabled>🔥 Delete Client Profile</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SCHEDULES VIEW -->
+            <section id="view-schedules" class="view-section">
+                <div class="view-header">
+                    <h1>📅 Reminder Filing Schedules</h1>
+                    <p>Set up and manage automated filing schedules for your clients.</p>
+                </div>
+
+                <div class="tabs-nav">
+                    <button class="tab-btn active" data-tab="schedules-list">📋 Active Schedules</button>
+                    <button class="tab-btn" data-tab="schedules-add">⚙️ Configure Schedule</button>
+                </div>
+
+                <!-- TAB 1: Schedules List -->
+                <div id="tab-schedules-list" class="tab-content active">
+                    <div class="card">
+                        <h3>Configured Schedules Registry</h3>
+                        <div class="table-container">
+                            <table id="table-schedules">
+                                <thead>
+                                    <tr>
+                                        <th>No.</th>
+                                        <th>Client</th>
+                                        <th>Business</th>
+                                        <th>Filing Type</th>
+                                        <th>Next Due Date</th>
+                                        <th>Frequency</th>
+                                        <th>Pending Alerts</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="9" class="loading">Loading reminder schedules...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Configure Schedule -->
+                <div id="tab-schedules-add" class="tab-content">
+                    <div class="card form-card">
+                        <h3>⚙️ Setup filing alert schedules</h3>
+                        <form id="form-add-schedule">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="schedule-client">Select Client *</label>
+                                    <select id="schedule-client" required>
+                                        <option value="">-- Choose Client --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="schedule-type">Select Filing Type *</label>
+                                    <select id="schedule-type" required>
+                                        <option value="">-- Choose Filing Type --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="schedule-due-date">Filing Due Date *</label>
+                                    <input type="date" id="schedule-due-date" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="schedule-frequency">Filing Frequency *</label>
+                                    <select id="schedule-frequency" required>
+                                        <option value="Annually">Annually</option>
+                                        <option value="Quarterly">Quarterly</option>
+                                        <option value="Monthly">Monthly</option>
+                                        <option value="Custom">Custom</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="schedule-status">Initial Status</label>
+                                    <select id="schedule-status">
+                                        <option value="Active">Active</option>
+                                        <option value="Paused">Paused</option>
+                                    </select>
+                                </div>
+                                <div class="form-group form-info-box">
+                                    <p>Saving this schedule will automatically generate pending email reminders based on selected filing offsets.</p>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full">Configure Reminder Schedule</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TEMPLATES VIEW -->
+            <section id="view-templates" class="view-section">
+                <div class="view-header">
+                    <h1>✉️ HTML Email Template Editor</h1>
+                    <p>Customize the HTML templates and subject lines for your client filing reminders.</p>
+                </div>
+
+                <div class="template-editor-grid">
+                    <!-- Left: Editor Form -->
+                    <div class="card">
+                        <h3>Edit Template Fields</h3>
+                        <div class="form-group select-template-group">
+                            <label for="select-template-type">Select Filing Type Template</label>
+                            <select id="select-template-type">
+                                <!-- Loaded dynamically -->
+                            </select>
+                        </div>
+                        <form id="form-template">
+                            <div class="form-group">
+                                <label for="template-subject">Email Subject Template</label>
+                                <input type="text" id="template-subject" required placeholder="Filing Reminder">
+                            </div>
+                            <div class="form-group">
+                                <label for="template-body">Email HTML Body</label>
+                                <textarea id="template-body" required rows="14" class="code-editor"></textarea>
+                            </div>
+                            <div class="variables-hint">
+                                <strong>Available Variables:</strong> 
+                                <code>{client_name}</code>, <code>{client_email}</code>, <code>{client_phone}</code>, <code>{business_name}</code>, <code>{due_date}</code>, <code>{offset_days}</code>, <code>{send_date}</code>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full">Save Template</button>
+                        </form>
+                    </div>
+
+                    <!-- Right: Live Preview Panel -->
+                    <div class="card preview-card">
+                        <h3>👁️ Live Preview (with Mock Data)</h3>
+                        <div id="preview-subject-bar" class="preview-subject">
+                            Subject: <span class="val"></span>
+                        </div>
+                        <div class="preview-iframe-wrapper">
+                            <iframe id="preview-iframe"></iframe>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SETTINGS VIEW -->
+            <section id="view-settings" class="view-section">
+                <div class="view-header">
+                    <h1>⚙️ Resend System Settings</h1>
+                    <p>Configure your Resend API credentials and sender profiles here.</p>
+                </div>
+
+                <div class="settings-grid">
+                    <!-- Settings Form -->
+                    <div class="card">
+                        <h3>🔧 Credentials & Sender Address</h3>
+                        <div id="settings-status-box"></div>
+                        
+                        <form id="form-settings">
+                            <div class="form-group">
+                                <label for="settings-api-key">Resend API Key</label>
+                                <input type="password" id="settings-api-key" placeholder="••••••••••••••••••••••••••••••••">
+                                <span class="help">Paste your API key from your Resend.com dashboard (usually starts with <code>re_</code>). Kept blank to retain current settings.</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="settings-from-email">From Email Address</label>
+                                <input type="email" id="settings-from-email" required placeholder="beedhtaxservices@gmail.com">
+                                <span class="help">Must be a verified sender domain in your Resend account. Default is <code>beedhtaxservices@gmail.com</code></span>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-full">Save Settings</button>
+                        </form>
+                    </div>
+
+                    <!-- Test Email Box -->
+                    <div class="card">
+                        <h3>✉️ Send Test Connection Email</h3>
+                        <p>Verify your Resend connection by sending a real test email instantly.</p>
+                        <form id="form-test-email" style="margin-top: 20px;">
+                            <div class="form-group">
+                                <label for="test-recipient">Test Recipient Email</label>
+                                <input type="email" id="test-recipient" required placeholder="recipient@example.com">
+                            </div>
+                            <button type="submit" class="btn btn-secondary w-full">Send Test Email</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- QUICK SEND VIEW -->
+            <section id="view-quicksend" class="view-section">
+                <div class="view-header">
+                    <h1>⚡ Quick Manual Email</h1>
+                    <p>Select a client, load a default filing template, customize it on the fly, and send it instantly.</p>
+                </div>
+
+                <div class="templates-layout">
+                    <div class="card form-card">
+                        <h3>✉️ Manual Compose</h3>
+                        <form id="form-quicksend" autocomplete="off">
+                            <div class="form-group">
+                                <label for="quicksend-client">Select Client *</label>
+                                <select id="quicksend-client" required>
+                                    <option value="">-- Choose Client --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="quicksend-type">Select Template Base *</label>
+                                <select id="quicksend-type" required>
+                                    <option value="">-- Choose Filing Type --</option>
+                                </select>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="quicksend-duedate">Filing Due Date (Prefills {{DueDate}})</label>
+                                    <input type="date" id="quicksend-duedate">
+                                </div>
+                                <div class="form-group">
+                                    <label for="quicksend-period">Reporting Period (Prefills {{reportingPeriod}})</label>
+                                    <input type="text" id="quicksend-period" placeholder="e.g. Q2 (2026)">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="quicksend-subject">Subject Line</label>
+                                <input type="text" id="quicksend-subject" required placeholder="Subject">
+                            </div>
+                            <div class="form-group">
+                                <label for="quicksend-body">Body HTML Editor</label>
+                                <textarea id="quicksend-body" required autocomplete="off" spellcheck="false" style="height: 300px; font-family: monospace; font-size: 13px;"></textarea>
+                            </div>
+                            <button type="submit" id="btn-quicksend-submit" class="btn btn-primary w-full">🚀 Send Email Now</button>
+                        </form>
+                    </div>
+
+                    <!-- Right preview pane -->
+                    <div class="card preview-card">
+                        <h3>👁️ Live Preview</h3>
+                        <div id="quicksend-subject-bar" class="preview-subject">
+                            Subject: <span class="val"></span>
+                        </div>
+                        <div class="preview-iframe-wrapper">
+                            <iframe id="quicksend-iframe"></iframe>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="app.js?v=20260731-3"></script>
+</body>
+</html>

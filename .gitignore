@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+.vercel
+*.db
+*.key
+*.log
+*dns*.txt
+reconstruct_all_files.js
+restore_from_history.js
+seed_supabase.js
+verify_system.js

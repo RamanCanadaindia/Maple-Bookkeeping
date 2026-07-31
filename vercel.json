@@ -1,0 +1,21 @@
+{
+  "name": "email-reminders",
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server.js"
+    }
+  ],
+  "env": {
+    "SUPABASE_URL": "https://hzyntzswxdqlhmhxtcov.supabase.co",
+    "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eW50enN3eGRxbGhtaHh0Y292Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTQ2MTIwNSwiZXhwIjoyMTAxMDM3MjA1fQ.LEZH4nDfzBaDDl7vAsQSRVgpvVpEiYTPPPP-YyQo9XY",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eW50enN3eGRxbGhtaHh0Y292Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NjEyMDUsImV4cCI6MjEwMTAzNzIwNX0.4-zdMgc_qAqOnQNVlNxn0XgM6TwBKdznhwE8jzDySEE"
+  }
+}
