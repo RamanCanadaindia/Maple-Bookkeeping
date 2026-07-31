@@ -23,8 +23,18 @@ def render_statement_import(db):
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         client_options = {c.business_name: c.id for c in clients}
-        client_name = st.selectbox("Client Account", list(client_options.keys()))
+        
+        # Match index to global_active_client_id
+        active_id = st.session_state.get("global_active_client_id", 0)
+        selected_idx = 0
+        for idx, (b_name, c_id) in enumerate(client_options.items()):
+            if c_id == active_id:
+                selected_idx = idx
+                break
+                
+        client_name = st.selectbox("Client Account", list(client_options.keys()), index=selected_idx)
         client_id = client_options[client_name]
+        st.session_state["global_active_client_id"] = client_id
         client = get_client_by_id(db, client_id)
         
     with col_c2:

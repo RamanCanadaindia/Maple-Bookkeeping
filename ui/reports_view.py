@@ -20,8 +20,18 @@ def render_reports(db):
         
     # Select Client
     client_options = {c.business_name: c.id for c in clients}
-    client_name = st.selectbox("Select Client", list(client_options.keys()), key="reports_client_select")
+    
+    # Match index to global_active_client_id
+    active_id = st.session_state.get("global_active_client_id", 0)
+    selected_idx = 0
+    for idx, (b_name, c_id) in enumerate(client_options.items()):
+        if c_id == active_id:
+            selected_idx = idx
+            break
+            
+    client_name = st.selectbox("Select Client", list(client_options.keys()), index=selected_idx, key="reports_client_select")
     client_id = client_options[client_name]
+    st.session_state["global_active_client_id"] = client_id
     client = get_client_by_id(db, client_id)
     
     tab_pl, tab_bs, tab_tb, tab_gst, tab_monthly = st.tabs(["📊 Income Statement (P&L)", "⚖️ Balance Sheet", "🏁 Trial Balance", "🍁 GST Return Summary", "📅 Monthly Cash Flow"])

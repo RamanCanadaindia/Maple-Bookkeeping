@@ -28,12 +28,23 @@ def render_client_management(db):
             status_symbol = "🔒" if c.status == "Locked" else "🟢"
             client_options[f"{status_symbol} {c.business_name}"] = c.id
             
+        # Match index to global_active_client_id
+        active_id = st.session_state.get("global_active_client_id", 0)
+        selected_idx = 0
+        for idx, (lbl, c_id) in enumerate(client_options.items()):
+            if c_id == active_id:
+                selected_idx = idx
+                break
+                
         selected_label = st.radio(
             "Select Client Account", 
             options=list(client_options.keys()), 
+            index=selected_idx,
             label_visibility="collapsed"
         )
         selected_client_id = client_options[selected_label]
+        if selected_client_id != 0:
+            st.session_state["global_active_client_id"] = selected_client_id
         
     with col_form:
         if selected_client_id == 0:

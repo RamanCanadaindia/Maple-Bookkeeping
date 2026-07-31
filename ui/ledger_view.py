@@ -19,8 +19,18 @@ def render_ledger_editor(db):
         
     # Select Client Account at the top level
     client_options = {c.business_name: c.id for c in clients}
-    client_name = st.selectbox("Client Account", list(client_options.keys()), key="ledger_client_select")
+    
+    # Match index to global_active_client_id
+    active_id = st.session_state.get("global_active_client_id", 0)
+    selected_idx = 0
+    for idx, (b_name, c_id) in enumerate(client_options.items()):
+        if c_id == active_id:
+            selected_idx = idx
+            break
+            
+    client_name = st.selectbox("Client Account", list(client_options.keys()), index=selected_idx, key="ledger_client_select")
     client_id = client_options[client_name]
+    st.session_state["global_active_client_id"] = client_id
     client = get_client_by_id(db, client_id)
     
     # Query Posted Transactions (Sorted by ID Ascending to preserve import sequence)
