@@ -161,14 +161,19 @@ class SupabaseAdapter {
                 return {
                     id: n.id,
                     reminder_id: n.reminder_id,
+                    reminder_type_id: rem.reminder_type_id || null,
+                    frequency: rem.frequency || 'Annually',
+                    reminder_type_code: rt.code || '',
                     due_date: n.current_due_date || n.due_date,
                     offset_days: n.offset_days,
                     send_date: n.scheduled_send_date || n.send_date,
                     recipient_email: n.recipient_email,
                     status: n.status,
                     error_message: n.last_error || n.error_message,
-                    client_name: cl.business_name || cl.name || 'Client #' + cl.id,
+                    client_name: cl.name || '',
                     business_name: cl.business_name || cl.name || '',
+                    client_email: cl.email || n.recipient_email || '',
+                    client_phone: cl.phone || '',
                     filing_name: rt.name || 'Filing'
                 };
             });
@@ -176,9 +181,13 @@ class SupabaseAdapter {
             if (/WHERE n.status = 'Pending'/i.test(cleanSql)) {
                 list = list.filter(x => x.status === 'Pending');
             }
+            if (/AND n.send_date <= \?/i.test(cleanSql) && params.length > 0) {
+                list = list.filter(x => x.send_date <= params[params.length - 1]);
+            }
 
             return list;
         }
+
 
         // 7. Email History
         if (/FROM email_history/i.test(cleanSql) || /FROM email_histories/i.test(cleanSql)) {
