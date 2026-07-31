@@ -455,10 +455,6 @@ const COMMON_HTML_TEMPLATE = `<div style="max-width: 620px; margin: 0 auto; back
     <!-- Main Content -->
     <div style="padding: 36px 30px; text-align: center;">
 
-        <p style="margin: 0 0 8px; color: #0284c7; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">
-            OFFICIAL FILING NOTICE
-        </p>
-
         <h2 style="margin: 0 0 16px; color: #062b52; font-size: 28px; font-weight: 800; line-height: 1.3;">
             {{reminderTitle}}
         </h2>
