@@ -505,19 +505,6 @@ const COMMON_HTML_TEMPLATE = `<div style="max-width: 620px; margin: 0 auto; back
             Timely filing can help avoid penalties, interest and unnecessary delays.
         </p>
 
-        <!-- Documents Required -->
-        <div style="background-color: #eff6ff; border-left: 4px solid #0284c7; border-radius: 8px; padding: 18px 20px; text-align: left; margin-bottom: 28px;">
-
-            <h3 style="margin: 0 0 10px; color: #062b52; font-size: 16px;">
-                Documents or information required
-            </h3>
-
-            <div style="color: #374151; font-size: 14px; line-height: 1.8;">
-                {{documentList}}
-            </div>
-
-        </div>
-
         <!-- Action Button -->
         <a href="mailto:beedhtaxservices@gmail.com?subject={{emailSubject}}"
            style="background-color: #062b52; color: #ffffff !important; padding: 17px 36px; border-radius: 10px; text-decoration: none; font-weight: 800; display: inline-block; font-size: 15px;">
