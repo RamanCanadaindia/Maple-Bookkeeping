@@ -119,6 +119,10 @@ class Transaction(Base):
     statement_period = Column(String, nullable=True) # e.g. "2026-06"
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @property
+    def description(self):
+        return self.cleaned_description or self.original_description
+
     # Relationships
     client = relationship("Client")
     account = relationship("ClientBankAccount")

@@ -55,6 +55,141 @@ def render_ledger_editor(db):
         if not txs:
             st.info("No transaction records found. Upload a bank statement in the Statement Ingestion tab first.")
         else:
+            # --- ⚡ Auto-Categorize Uncategorized Feature ---
+            user = st.session_state.get("current_user")
+            role = getattr(user, "role", "Viewer")
+            from services.client_service import verify_client_access
+            can_run = role in ("Admin", "Accountant") or (role == "Bookkeeper" and verify_client_access(db, client_id, user))
+            
+            if can_run:
+                st.markdown("### ⚡ Auto-Categorize Uncategorized Transactions")
+                st.markdown("Scan all transactions to automatically match descriptions against your client's saved merchant keyword rules.")
+                
+                # Check if there is an undo batch available
+                last_batch = st.session_state.get("last_auto_cat_batch")
+                if last_batch and last_batch.get("client_id") == client_id:
+                    if st.button(f"↩️ Undo Last Auto-Categorization Batch ({len(last_batch['updates'])} transactions)", type="secondary", use_container_width=True):
+                        with st.spinner("Undoing auto-categorization batch..."):
+                            for item in last_batch["updates"]:
+                                try:
+                                    update_transaction_category(db, item["tx_id"], item["old_category"])
+                                    from services.audit_service import log_action
+                                    log_action(db, user_id=user.id, user_name=user.name, action_type="Undo Auto-Categorize", client_id=client_id, details=f"Transaction ID: {item['tx_id']}, Restored Category: {item['old_category']}")
+                                except Exception as e:
+                                    st.error(f"Failed to restore transaction {item['tx_id']}: {e}")
+                            st.session_state["last_auto_cat_batch"] = None
+                            st.success("Successfully reverted the auto-categorization batch!")
+                            st.rerun()
+                
+                # Button to start scanning
+                if st.button("🔍 Run Auto-Categorization Scanner", use_container_width=True, key="run_auto_cat_scan_btn"):
+                    from services.rule_service import match_client_mapping_rule
+                    matched_list = []
+                    matched_cnt = 0
+                    unmatched_cnt = 0
+                    skipped_cnt = 0
+                    
+                    for transaction in txs:
+                        normalized_category = (transaction.category or "").strip().lower()
+                        if normalized_category in ("", "uncategorized"):
+                            matched_rule = match_client_mapping_rule(
+                                db=db,
+                                client_id=client_id,
+                                description=transaction.description
+                            )
+                            if matched_rule:
+                                matched_cnt += 1
+                                matched_list.append({
+                                    "tx_id": transaction.id,
+                                    "date": transaction.date.strftime("%Y-%m-%d"),
+                                    "description": transaction.description,
+                                    "existing_category": transaction.category or "Uncategorized",
+                                    "matched_keyword": matched_rule.keyword,
+                                    "proposed_category": matched_rule.category
+                                })
+                            else:
+                                unmatched_cnt += 1
+                        else:
+                            skipped_cnt += 1
+                            
+                    st.session_state["auto_cat_preview"] = {
+                        "matched": matched_list,
+                        "matched_count": matched_cnt,
+                        "unmatched_count": unmatched_cnt,
+                        "skipped_count": skipped_cnt
+                    }
+                    
+                # If preview exists, display it
+                preview = st.session_state.get("auto_cat_preview")
+                if preview:
+                    st.markdown("#### Scanner Results Preview")
+                    # Display count metrics
+                    p_col1, p_col2, p_col3 = st.columns(3)
+                    p_col1.metric("Proposals Matched", preview["matched_count"])
+                    p_col2.metric("Unmatched (Uncategorized)", preview["unmatched_count"])
+                    p_col3.metric("Skipped (Already Categorized)", preview["skipped_count"])
+                    
+                    if preview["matched_count"] > 0:
+                        df_preview = pd.DataFrame(preview["matched"])
+                        st.dataframe(df_preview.rename(columns={
+                            "date": "Date",
+                            "description": "Description",
+                            "existing_category": "Existing Category",
+                            "matched_keyword": "Matched Keyword",
+                            "proposed_category": "Proposed Category"
+                        }), use_container_width=True, hide_index=True)
+                        
+                        btn_col1, btn_col2 = st.columns(2)
+                        with btn_col1:
+                            if st.button("✅ Confirm and Apply Updates", type="primary", use_container_width=True):
+                                updates_list = []
+                                with st.spinner("Applying auto-categorizations to ledger..."):
+                                    from services.audit_service import log_action
+                                    for item in preview["matched"]:
+                                        tx_id = item["tx_id"]
+                                        transaction = db.query(Transaction).filter(Transaction.id == tx_id).first()
+                                        if transaction:
+                                            old_category_val = transaction.category or "Uncategorized"
+                                            new_category_val = item["proposed_category"]
+                                            
+                                            # Apply the update
+                                            update_transaction_category(db, tx_id, new_category_val)
+                                            updates_list.append({
+                                                "tx_id": tx_id,
+                                                "old_category": old_category_val,
+                                                "new_category": new_category_val
+                                            })
+                                            
+                                            # Audit Log
+                                            log_action(
+                                                db=db,
+                                                user_id=user.id,
+                                                user_name=user.name,
+                                                action_type="Auto-Categorize",
+                                                client_id=client_id,
+                                                details=f"Transaction ID: {tx_id}, Old Category: {old_category_val}, New Category: {new_category_val}, Matched Rule: {item['matched_keyword']}"
+                                            )
+                                            
+                                st.session_state["last_auto_cat_batch"] = {
+                                    "client_id": client_id,
+                                    "updates": updates_list
+                                }
+                                st.session_state["auto_cat_preview"] = None
+                                st.success(f"🎉 Successfully updated {len(updates_list)} transactions!")
+                                st.rerun()
+                                
+                        with btn_col2:
+                            if st.button("❌ Cancel Scan", use_container_width=True):
+                                st.session_state["auto_cat_preview"] = None
+                                st.rerun()
+                    else:
+                        st.info("No matching merchant/keyword mapping rules were found for the uncategorized transactions of this client.")
+                        if st.button("Clear Results", use_container_width=True):
+                            st.session_state["auto_cat_preview"] = None
+                            st.rerun()
+                            
+                st.markdown("---")
+            
             st.markdown("### Transaction Editor")
             st.info("💡 **Tips:**\n"
                     "*   Double-click the **Category** cell in any row to change its mapping.\n"

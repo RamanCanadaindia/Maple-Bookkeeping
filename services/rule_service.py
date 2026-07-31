@@ -58,3 +58,16 @@ def match_local_rules(db: Session, client_id: int, merchant_name: str, original_
             return r
             
     return None
+
+def match_client_mapping_rule(db: Session, client_id: int, description: str) -> CategoryRule:
+    """
+    Matches a description string against a client's rules (used for auto-categorization).
+    """
+    if not description:
+        return None
+    rules = get_client_rules(db, client_id)
+    desc_upper = description.upper()
+    for r in rules:
+        if r.keyword in desc_upper:
+            return r
+    return None
