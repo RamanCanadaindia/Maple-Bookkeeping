@@ -1402,54 +1402,54 @@ def render_ledger_editor(db):
             st.warning("Only administrators and accountants are authorized to reset client transaction history.")
         else:
             # Account selector for deletion
-        bank_accounts = db.query(ClientBankAccount).filter(ClientBankAccount.client_id == client_id).all()
-        reset_options = ["Wipe ALL Accounts Combined"] + [f"Wipe {b.account_name} (*{b.account_number})" for b in bank_accounts]
-        selected_reset_opt = st.selectbox("Select Target Account to Reset", reset_options, key="danger_zone_account_select")
-        
-        confirm_reset = st.checkbox(f"I understand this will delete all transactions and ledger balances for: {selected_reset_opt}", key="confirm_bulk_wipe_check")
-        
-        if st.button("🔥 Execute Reset and Wipe Transactions", type="primary", disabled=not confirm_reset, use_container_width=True):
-            from core.models import JournalEntry, JournalLine
+            bank_accounts = db.query(ClientBankAccount).filter(ClientBankAccount.client_id == client_id).all()
+            reset_options = ["Wipe ALL Accounts Combined"] + [f"Wipe {b.account_name} (*{b.account_number})" for b in bank_accounts]
+            selected_reset_opt = st.selectbox("Select Target Account to Reset", reset_options, key="danger_zone_account_select")
             
-            if selected_reset_opt == "Wipe ALL Accounts Combined":
-                # Wipe everything for this client
-                db.query(JournalLine).filter(JournalLine.journal_entry_id.in_(
-                    db.query(JournalEntry.id).filter(JournalEntry.client_id == client_id)
-                )).delete(synchronize_session=False)
-                db.query(JournalEntry).filter(JournalEntry.client_id == client_id).delete(synchronize_session=False)
-                db.query(Transaction).filter(Transaction.client_id == client_id).delete(synchronize_session=False)
-                db.commit()
-                st.success("General Ledger successfully reset. All transactions deleted.")
-            else:
-                # Find selected bank account ID
-                chosen_idx = reset_options.index(selected_reset_opt) - 1
-                target_bank = bank_accounts[chosen_idx]
+            confirm_reset = st.checkbox(f"I understand this will delete all transactions and ledger balances for: {selected_reset_opt}", key="confirm_bulk_wipe_check")
+            
+            if st.button("🔥 Execute Reset and Wipe Transactions", type="primary", disabled=not confirm_reset, use_container_width=True):
+                from core.models import JournalEntry, JournalLine
                 
-                # Delete lines first
-                db.query(JournalLine).filter(JournalLine.journal_entry_id.in_(
-                    db.query(JournalEntry.id).filter(JournalEntry.transaction_id.in_(
+                if selected_reset_opt == "Wipe ALL Accounts Combined":
+                    # Wipe everything for this client
+                    db.query(JournalLine).filter(JournalLine.journal_entry_id.in_(
+                        db.query(JournalEntry.id).filter(JournalEntry.client_id == client_id)
+                    )).delete(synchronize_session=False)
+                    db.query(JournalEntry).filter(JournalEntry.client_id == client_id).delete(synchronize_session=False)
+                    db.query(Transaction).filter(Transaction.client_id == client_id).delete(synchronize_session=False)
+                    db.commit()
+                    st.success("General Ledger successfully reset. All transactions deleted.")
+                else:
+                    # Find selected bank account ID
+                    chosen_idx = reset_options.index(selected_reset_opt) - 1
+                    target_bank = bank_accounts[chosen_idx]
+                    
+                    # Delete lines first
+                    db.query(JournalLine).filter(JournalLine.journal_entry_id.in_(
+                        db.query(JournalEntry.id).filter(JournalEntry.transaction_id.in_(
+                            db.query(Transaction.id).filter(
+                                Transaction.client_id == client_id,
+                                Transaction.account_id == target_bank.id
+                            )
+                        ))
+                    )).delete(synchronize_session=False)
+                    
+                    # Delete entries
+                    db.query(JournalEntry).filter(JournalEntry.transaction_id.in_(
                         db.query(Transaction.id).filter(
                             Transaction.client_id == client_id,
                             Transaction.account_id == target_bank.id
                         )
-                    ))
-                )).delete(synchronize_session=False)
-                
-                # Delete entries
-                db.query(JournalEntry).filter(JournalEntry.transaction_id.in_(
-                    db.query(Transaction.id).filter(
+                    )).delete(synchronize_session=False)
+                    
+                    # Delete transactions
+                    db.query(Transaction).filter(
                         Transaction.client_id == client_id,
                         Transaction.account_id == target_bank.id
-                    )
-                )).delete(synchronize_session=False)
-                
-                # Delete transactions
-                db.query(Transaction).filter(
-                    Transaction.client_id == client_id,
-                    Transaction.account_id == target_bank.id
-                ).delete(synchronize_session=False)
-                
-                db.commit()
-                st.success(f"Successfully deleted all transactions for {target_bank.account_name}!")
-                
-            st.rerun()
+                    ).delete(synchronize_session=False)
+                    
+                    db.commit()
+                    st.success(f"Successfully deleted all transactions for {target_bank.account_name}!")
+                    
+                st.rerun()
