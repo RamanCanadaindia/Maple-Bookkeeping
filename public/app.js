@@ -619,7 +619,35 @@ function updateLiveTemplatePreview() {
     if (filingName.includes('BC Annual')) rtCode = 'BC_ANNUAL';
     if (filingName.includes('Corporation')) rtCode = 'CORP_TAX_T2';
     
-    const documentList = `Please send all required documents and information needed to prepare your return.`;
+    const listStyle = "margin: 0; padding-left: 20px; text-align: left;";
+    let documentList = '';
+    if (rtCode === 'GST_HST') {
+        documentList = `<ul style="${listStyle}">
+            <li>Total gross revenues & sales records</li>
+            <li>GST/HST collected on sales</li>
+            <li>GST/HST paid on business purchases (ITCs)</li>
+            <li>All business expenses bank/credit card statements</li>
+        </ul>`;
+    } else if (rtCode === 'PAYROLL') {
+        documentList = `<ul style="${listStyle}">
+            <li>Employee hours worked & wage logs</li>
+            <li>Details of any salary/bonus changes</li>
+            <li>Information on new hires or terminations</li>
+        </ul>`;
+    } else if (rtCode === 'BC_ANNUAL') {
+        documentList = `<ul style="${listStyle}">
+            <li>Confirmation of active director details & home addresses</li>
+            <li>Current registered office mailing address</li>
+            <li>Notice of corporate shares changes, if any</li>
+        </ul>`;
+    } else {
+        documentList = `<ul style="${listStyle}">
+            <li>Corporate financial reports (Balance Sheet & Income Statement)</li>
+            <li>Full general ledger & trial balances</li>
+            <li>Invoices for capital assets purchased or sold</li>
+            <li>Prior year CRA Notice of Assessment</li>
+        </ul>`;
+    }
 
     let compiledSubj = subject;
     
