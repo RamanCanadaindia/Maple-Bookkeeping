@@ -137,3 +137,41 @@ def toggle_client_lock(db: Session, client_id: int, lock: bool, user_role: str, 
         details=f"Performed by: {current_user_name} ({user_role})"
     )
     return client
+
+def sync_global_active_client(widget_key: str, client_options: dict):
+    """
+    Synchronizes a client-selection widget with the global active client session state.
+    Ensures hidden tabs in st.tabs() do not overwrite active state with stale values,
+    and forces the widget key value to update to the global active ID before rendering.
+    """
+    import streamlit as st
+
+    # 1. Initialize global active client if not present
+    if "global_active_client_id" not in st.session_state:
+        # Default to first available client, or 0 if none
+        st.session_state["global_active_client_id"] = list(client_options.values())[0] if client_options else 0
+
+    global_active_id = st.session_state["global_active_client_id"]
+
+    # 2. Find the option string matching this global_active_id
+    selected_option = None
+    for option_str, c_id in client_options.items():
+        if c_id == global_active_id:
+            selected_option = option_str
+            break
+
+    # 3. If global active client changed via another widget, update this widget's session_state directly
+    if selected_option is not None:
+        current_widget_val = st.session_state.get(widget_key)
+        if current_widget_val != selected_option:
+            st.session_state[widget_key] = selected_option
+
+    # 4. Define the callback function to handle user interactions on_change
+    def handle_widget_change():
+        new_val = st.session_state[widget_key]
+        if new_val in client_options:
+            val_id = client_options[new_val]
+            if val_id != 0:
+                st.session_state["global_active_client_id"] = val_id
+
+    return handle_widget_change

@@ -20,7 +20,12 @@ def render_receipt_matcher(db):
         
     # Select Client
     client_options = {c.business_name: c.id for c in clients}
-    client_name = st.selectbox("Client Account", list(client_options.keys()), key="receipt_client_select")
+    
+    from services.client_service import sync_global_active_client
+    widget_key = "receipt_client_select"
+    on_change_cb = sync_global_active_client(widget_key, client_options)
+    
+    client_name = st.selectbox("Client Account", list(client_options.keys()), key=widget_key, on_change=on_change_cb)
     client_id = client_options[client_name]
     client = get_client_by_id(db, client_id)
     
