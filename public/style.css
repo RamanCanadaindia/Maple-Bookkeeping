@@ -757,3 +757,80 @@ td.empty {
 .toast-close:hover {
     color: var(--text-primary);
 }
+
+/* -------------------------------------------------------------
+   Add Client Form Layout Upgrades
+   ------------------------------------------------------------- */
+.profile-section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 25px 0 15px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.profile-section-title:first-of-type {
+    margin-top: 0;
+}
+
+.form-grid-three {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px 25px;
+    margin-bottom: 25px;
+}
+
+.filing-sections-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.filing-panel {
+    background-color: rgba(255, 255, 255, 0.01);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.filing-panel h4 {
+    margin: 0 0 5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.filing-panel .form-group {
+    width: 100%;
+}
+
+.info-tip-box {
+    background-color: rgba(99, 102, 241, 0.04);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: auto;
+}
+
+.info-tip-box .info-icon {
+    font-size: 1.1rem;
+    color: var(--color-primary);
+    flex-shrink: 0;
+}

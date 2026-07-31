@@ -210,18 +210,229 @@ app.get('/api/clients', async (req, res) => {
     }
 });
 
+// Date Calculation Helpers for Auto-Schedules
+function calculateNextAnniversaryDate(anniversaryStr) {
+    const months = {
+        'January': 0, 'February': 1, 'March': 2, 'April': 3, 'May': 4, 'June': 5,
+        'July': 6, 'August': 7, 'September': 8, 'October': 9, 'November': 10, 'December': 11
+    };
+    const parts = anniversaryStr.split(' ');
+    const monthName = parts[0];
+    const dayNum = parseInt(parts[1] || '1', 10);
+    const monthIndex = months[monthName] !== undefined ? months[monthName] : 0;
+    
+    const today = new Date();
+    let year = today.getFullYear();
+    let dueDate = new Date(year, monthIndex, dayNum);
+    
+    if (dueDate < today) {
+        dueDate = new Date(year + 1, monthIndex, dayNum);
+    }
+    
+    const y = dueDate.getFullYear();
+    const m = String(dueDate.getMonth() + 1).padStart(2, '0');
+    const d = String(dueDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function calculateNextT2DueDate(fiscalYearEndStr) {
+    const anniversary = calculateNextAnniversaryDate(fiscalYearEndStr);
+    const [y, m, d] = anniversary.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setMonth(date.getMonth() + 6);
+    
+    const expectedMonth = (m - 1 + 6) % 12;
+    if (date.getMonth() !== expectedMonth) {
+        date.setDate(0);
+    }
+    
+    const finalY = date.getFullYear();
+    const finalM = String(date.getMonth() + 1).padStart(2, '0');
+    const finalD = String(date.getDate()).padStart(2, '0');
+    return `${finalY}-${finalM}-${finalD}`;
+}
+
+function calculateGSTHSTDueDate(frequency, fiscalYearEndStr) {
+    const today = new Date();
+    if (frequency === 'Quarterly') {
+        const quarterlyDueDates = [
+            { m: 3, d: 30 },
+            { m: 6, d: 31 },
+            { m: 9, d: 31 },
+            { m: 0, d: 31 }
+        ];
+        
+        let bestDate = null;
+        for (const item of quarterlyDueDates) {
+            let year = today.getFullYear();
+            if (item.m === 0 && today.getMonth() >= 10) {
+                year += 1;
+            }
+            const candidate = new Date(year, item.m, item.d);
+            if (candidate >= today) {
+                if (!bestDate || candidate < bestDate) {
+                    bestDate = candidate;
+                }
+            }
+        }
+        if (!bestDate) {
+            bestDate = new Date(today.getFullYear() + 1, 0, 31);
+        }
+        const y = bestDate.getFullYear();
+        const m = String(bestDate.getMonth() + 1).padStart(2, '0');
+        const d = String(bestDate.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    } else if (frequency === 'Monthly') {
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+        const y = nextMonth.getFullYear();
+        const m = String(nextMonth.getMonth() + 1).padStart(2, '0');
+        const d = String(nextMonth.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    } else {
+        if (!fiscalYearEndStr) fiscalYearEndStr = 'December 31';
+        const anniversary = calculateNextAnniversaryDate(fiscalYearEndStr);
+        const [y, m, d] = anniversary.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        date.setMonth(date.getMonth() + 3);
+        
+        const expectedMonth = (m - 1 + 3) % 12;
+        if (date.getMonth() !== expectedMonth) {
+            date.setDate(0);
+        }
+        const finalY = date.getFullYear();
+        const finalM = String(date.getMonth() + 1).padStart(2, '0');
+        const finalD = String(date.getDate()).padStart(2, '0');
+        return `${finalY}-${finalM}-${finalD}`;
+    }
+}
+
+function calculatePayrollDueDate() {
+    const today = new Date();
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 15);
+    const y = nextMonth.getFullYear();
+    const m = String(nextMonth.getMonth() + 1).padStart(2, '0');
+    const d = String(nextMonth.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 app.post('/api/clients', async (req, res) => {
-    const { name, email, phone, business_name, fiscal_year_end } = req.body;
+    const { name, email, phone, business_name, business_number, corporation_number, fiscal_year_end, gst_reporting_period, payroll_frequency, payroll_remitter_type, bc_anniversary_date } = req.body;
     if (!name || !email) {
         return res.status(400).json({ error: 'Name and email are required fields.' });
     }
     try {
         const db = await getDb();
+        
+        // Format business name to pack BN & Corp num cleanly
+        let finalBusinessName = business_name ? business_name.trim() : '';
+        const bnVal = business_number ? business_number.trim() : '';
+        const corpVal = corporation_number ? corporation_number.trim() : '';
+        if (bnVal || corpVal) {
+            finalBusinessName += ` [BN: ${bnVal}] [Corp: ${corpVal}]`;
+        }
+
         const result = await db.run(
             `INSERT INTO clients (name, email, phone, business_name, fiscal_year_end) VALUES (?, ?, ?, ?, ?)`,
-            [name.trim(), email.trim(), phone ? phone.trim() : null, business_name ? business_name.trim() : null, fiscal_year_end ? fiscal_year_end.trim() : null]
+            [name.trim(), email.trim(), phone ? phone.trim() : null, finalBusinessName, fiscal_year_end ? fiscal_year_end.trim() : null]
         );
-        res.json({ id: result.lastID, name, email, phone, business_name, fiscal_year_end });
+        const clientId = result.lastID;
+
+        // Auto-create schedules based on the UI wizard options
+        const reminderTypes = await db.all('SELECT id, code, default_offsets FROM reminder_types');
+
+        // 1. GST/HST Schedule
+        if (gst_reporting_period && gst_reporting_period !== 'None') {
+            const gstType = reminderTypes.find(t => t.code === 'GST_HST');
+            if (gstType) {
+                const dueDate = calculateGSTHSTDueDate(gst_reporting_period, fiscal_year_end);
+                const schedResult = await db.run(
+                    `INSERT INTO reminders (client_id, reminder_type_id, start_due_date, frequency, status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [clientId, gstType.id, dueDate, gst_reporting_period]
+                );
+                const reminderId = schedResult.lastID;
+                
+                // Pre-generate GST/HST notifications
+                const offsets = gstType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+                for (const offset of offsets) {
+                    const sendDate = addDays(dueDate, -offset);
+                    await db.run(
+                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                        [reminderId, dueDate, offset, sendDate, email.trim()]
+                    );
+                }
+            }
+        }
+
+        // 2. Payroll Schedule
+        if (payroll_frequency && payroll_frequency !== 'None') {
+            const payrollType = reminderTypes.find(t => t.code === 'PAYROLL');
+            if (payrollType) {
+                const dueDate = calculatePayrollDueDate();
+                const schedResult = await db.run(
+                    `INSERT INTO reminders (client_id, reminder_type_id, start_due_date, frequency, status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [clientId, payrollType.id, dueDate, 'Monthly']
+                );
+                const reminderId = schedResult.lastID;
+                
+                // Pre-generate Payroll notifications
+                const offsets = payrollType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+                for (const offset of offsets) {
+                    const sendDate = addDays(dueDate, -offset);
+                    await db.run(
+                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                        [reminderId, dueDate, offset, sendDate, email.trim()]
+                    );
+                }
+            }
+        }
+
+        // 3. BC Annual Schedule
+        if (bc_anniversary_date && bc_anniversary_date !== 'None') {
+            const bcType = reminderTypes.find(t => t.code === 'BC_ANNUAL');
+            if (bcType) {
+                const dueDate = calculateNextAnniversaryDate(bc_anniversary_date);
+                const schedResult = await db.run(
+                    `INSERT INTO reminders (client_id, reminder_type_id, start_due_date, frequency, status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [clientId, bcType.id, dueDate, 'Annually']
+                );
+                const reminderId = schedResult.lastID;
+                
+                // Pre-generate BC Annual notifications
+                const offsets = bcType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+                for (const offset of offsets) {
+                    const sendDate = addDays(dueDate, -offset);
+                    await db.run(
+                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                        [reminderId, dueDate, offset, sendDate, email.trim()]
+                    );
+                }
+            }
+        }
+
+        // 4. Corporation Tax (T2) Schedule
+        if (fiscal_year_end && fiscal_year_end !== 'None' && fiscal_year_end !== '') {
+            const t2Type = reminderTypes.find(t => t.code === 'CORP_TAX_T2');
+            if (t2Type) {
+                const dueDate = calculateNextT2DueDate(fiscal_year_end);
+                const schedResult = await db.run(
+                    `INSERT INTO reminders (client_id, reminder_type_id, start_due_date, frequency, status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [clientId, t2Type.id, dueDate, 'Annually']
+                );
+                const reminderId = schedResult.lastID;
+                
+                // Pre-generate T2 notifications
+                const offsets = t2Type.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+                for (const offset of offsets) {
+                    const sendDate = addDays(dueDate, -offset);
+                    await db.run(
+                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                        [reminderId, dueDate, offset, sendDate, email.trim()]
+                    );
+                }
+            }
+        }
+
+        res.json({ id: clientId, name, email, phone, business_name: finalBusinessName, fiscal_year_end });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

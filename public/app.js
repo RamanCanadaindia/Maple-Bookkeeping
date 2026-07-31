@@ -227,7 +227,6 @@ async function loadDashboardData() {
    Clients Profiles CRUD Controller
    ------------------------------------------------------------- */
 function initClients() {
-    // Add Client form
     const addForm = document.getElementById('form-add-client');
     addForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -236,7 +235,13 @@ function initClients() {
             email: document.getElementById('client-email').value,
             phone: document.getElementById('client-phone').value,
             business_name: document.getElementById('client-business').value,
-            fiscal_year_end: document.getElementById('client-yearend').value
+            business_number: document.getElementById('client-bn').value,
+            corporation_number: document.getElementById('client-corpnum').value,
+            fiscal_year_end: document.getElementById('client-yearend').value,
+            gst_reporting_period: document.getElementById('client-gst-period').value,
+            payroll_frequency: document.getElementById('client-payroll-freq').value,
+            payroll_remitter_type: document.getElementById('client-payroll-type').value,
+            bc_anniversary_date: document.getElementById('client-bc-anniversary').value
         };
         
         try {

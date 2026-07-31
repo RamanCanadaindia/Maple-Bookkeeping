@@ -189,10 +189,14 @@
 
                 <!-- TAB 2: Add Client -->
                 <div id="tab-clients-add" class="tab-content">
-                    <div class="card form-card">
-                        <h3>➕ Create New Client Profile</h3>
+                    <div class="card" style="max-width: 1000px; margin: 0 auto;">
+                        <h2 style="display: flex; align-items: center; gap: 12px; margin-bottom: 25px;"><span style="font-size: 1.8rem;">👤</span> Create New Client Profile</h2>
                         <form id="form-add-client">
-                            <div class="form-grid">
+                            <!-- Section 1: Client Information -->
+                            <div class="profile-section-title">
+                                <span>👤 1. Client Information</span>
+                            </div>
+                            <div class="form-grid-three">
                                 <div class="form-group">
                                     <label for="client-name">Client Full Name *</label>
                                     <input type="text" id="client-name" required placeholder="John Doe">
@@ -210,8 +214,16 @@
                                     <input type="text" id="client-business" placeholder="Doe Consulting LLC">
                                 </div>
                                 <div class="form-group">
-                                    <label for="client-yearend">Fiscal Year End (Optional)</label>
-                                    <select id="client-yearend">
+                                    <label for="client-bn">Business Number (BN) (Optional)</label>
+                                    <input type="text" id="client-bn" placeholder="12345 6789 RT0001">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-corpnum">Corporation Number (BC/Federal) (Optional)</label>
+                                    <input type="text" id="client-corpnum" placeholder="BC1234567">
+                                </div>
+                                <div class="form-group">
+                                    <label for="client-yearend">Fiscal Year End *</label>
+                                    <select id="client-yearend" required>
                                         <option value="">-- Select Year End --</option>
                                         <option value="December 31">December 31</option>
                                         <option value="January 31">January 31</option>
@@ -228,7 +240,81 @@
                                     </select>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-primary w-full">Create Profile</button>
+
+                            <!-- Filing Sections Container (GST/HST, Payroll, BC Corporate) -->
+                            <div class="filing-sections-container">
+                                <!-- Section 2: GST/HST Information -->
+                                <div class="filing-panel">
+                                    <h4>📄 2. GST/HST Information</h4>
+                                    <div class="form-group">
+                                        <label for="client-gst-period">GST/HST Reporting Period *</label>
+                                        <select id="client-gst-period" required>
+                                            <option value="Quarterly">Quarterly</option>
+                                            <option value="Monthly">Monthly</option>
+                                            <option value="Annually">Annually</option>
+                                            <option value="None">None / Not Applicable</option>
+                                        </select>
+                                    </div>
+                                    <div class="info-tip-box">
+                                        <span class="info-icon">ℹ️</span>
+                                        <span>Quarterly filers: Due one month after the end of each calendar quarter.</span>
+                                    </div>
+                                </div>
+
+                                <!-- Section 3: Payroll Information -->
+                                <div class="filing-panel">
+                                    <h4>👥 3. Payroll Information</h4>
+                                    <div class="form-group">
+                                        <label for="client-payroll-freq">Payroll Frequency *</label>
+                                        <select id="client-payroll-freq" required>
+                                            <option value="Bi-weekly">Bi-weekly</option>
+                                            <option value="Monthly">Monthly</option>
+                                            <option value="None">None / Not Applicable</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="client-payroll-type">Payroll Remitter Type *</label>
+                                        <select id="client-payroll-type" required>
+                                            <option value="Regular (Monthly)">Regular (Monthly)</option>
+                                            <option value="Quarterly">Quarterly</option>
+                                            <option value="None">None / Not Applicable</option>
+                                        </select>
+                                    </div>
+                                    <div class="info-tip-box">
+                                        <span class="info-icon">ℹ️</span>
+                                        <span>Regular remitters: Deduct and remit monthly by the 15th of the following month.</span>
+                                    </div>
+                                </div>
+
+                                <!-- Section 4: BC Corporate Information -->
+                                <div class="filing-panel">
+                                    <h4>📅 4. BC Corporate Information</h4>
+                                    <div class="form-group">
+                                        <label for="client-bc-anniversary">BC Annual Report Period End (Anniversary) *</label>
+                                        <select id="client-bc-anniversary" required>
+                                            <option value="August 31">August 31</option>
+                                            <option value="December 31">December 31</option>
+                                            <option value="January 31">January 31</option>
+                                            <option value="February 28">February 28 / 29</option>
+                                            <option value="March 31">March 31</option>
+                                            <option value="April 30">April 30</option>
+                                            <option value="May 31">May 31</option>
+                                            <option value="June 30">June 30</option>
+                                            <option value="July 31">July 31</option>
+                                            <option value="September 30">September 30</option>
+                                            <option value="October 31">October 31</option>
+                                            <option value="November 30">November 30</option>
+                                            <option value="None">None / Not Applicable</option>
+                                        </select>
+                                    </div>
+                                    <div class="info-tip-box">
+                                        <span class="info-icon">ℹ️</span>
+                                        <span>BC Annual Report is due annually on the anniversary of incorporation.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button type="submit" style="background: var(--color-primary); color: #fff; padding: 14px 0; font-size: 1.05rem; font-weight: 700; border-radius: var(--radius-md); border: none; cursor: pointer; transition: var(--transition);" class="w-full">Create Profile</button>
                         </form>
                     </div>
                 </div>
