@@ -7,6 +7,24 @@ from services.gst_service import generate_gst_return_summary
 from services.export_service import generate_excel_report, generate_pdf_report
 from core.models import Transaction
 
+def render_custom_metric_card(label: str, value: str, icon: str, bg_color: str, text_color: str, icon_bg: str):
+    """
+    Renders a premium, accessible custom HTML metric card with robust contrast
+    and red-green color-blind-safe palette styling.
+    """
+    import streamlit as st
+    st.markdown(f"""
+    <div style="background-color: white; border: 1px solid #e2e8f0; padding: 1.2rem; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; min-height: 100px;">
+        <div>
+            <div style="font-size: 0.8rem; color: #475569; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">{label}</div>
+            <div style="font-size: 1.55rem; color: {text_color}; font-weight: 800; line-height: 1.1;">{value}</div>
+        </div>
+        <div style="width: 46px; height: 46px; border-radius: 50%; background-color: {icon_bg}; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);">
+            {icon}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 def render_reports(db):
     """
     Renders corporate financial statements and GST Netfile return details.
@@ -37,11 +55,14 @@ def render_reports(db):
         
         pl = compile_income_statement(db, client_id)
         
-        # Display margins cards
+        # Display margins cards using color-blind-safe premium HTML layout
         col_c1, col_c2, col_c3 = st.columns(3)
-        col_c1.metric("Gross Revenue", f"${pl.get('Total Revenue', 0.0):,.2f}")
-        col_c2.metric("Total Expenses", f"${pl.get('Total Expenses', 0.0):,.2f}")
-        col_c3.metric("Net Book Income", f"${pl.get('Net Income', 0.0):,.2f}")
+        with col_c1:
+            render_custom_metric_card("Gross Revenue", f"${pl.get('Total Revenue', 0.0):,.2f}", "📈", "#f8fafc", "#0072B2", "#E6F0FA")
+        with col_c2:
+            render_custom_metric_card("Total Expenses", f"${pl.get('Total Expenses', 0.0):,.2f}", "📉", "#f8fafc", "#E69F00", "#FFF5E6")
+        with col_c3:
+            render_custom_metric_card("Net Book Income", f"${pl.get('Net Income', 0.0):,.2f}", "⚖️", "#f8fafc", "#0072B2", "#E6F0FA")
         
         st.markdown("---")
         
@@ -258,11 +279,14 @@ def render_reports(db):
         if not gst_ret:
             st.info("No sales transactions to compute GST return.")
         else:
+            # Determine Line 109 color based on payable vs refund status
+            net_tax_color = "#E69F00" if gst_ret['net_tax_due_line109'] > 0 else "#0072B2"
+            
             # Layout the CRA NETFILE values card
             st.markdown(
                 f"""
                 <div style="background-color: #f7f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #d3dbde; max-width: 600px; margin: 1rem 0;">
-                    <h3 style="color:#c92a2a; margin-top:0;">🍁 GST Return Summary (Form GST34)</h3>
+                    <h3 style="color:#1F3A5F; margin-top:0;">🍁 GST Return Summary (Form GST34)</h3>
                     <table style="width:100%; border-collapse: collapse;">
                         <tr style="border-bottom: 1px solid #ddd; height: 35px;">
                             <td><b>Line 101:</b> Taxable Sales & Revenue</td>
@@ -278,11 +302,11 @@ def render_reports(db):
                         </tr>
                         <tr style="border-bottom: 1px solid #ddd; height: 35px;">
                             <td><b>Line 108:</b> Input Tax Credits (ITCs) Claimed</td>
-                            <td style="text-align:right; color:#2b8a3e;">${gst_ret['itcs_claimed_line108']:,.2f}</td>
+                            <td style="text-align:right; color:#0072B2;">${gst_ret['itcs_claimed_line108']:,.2f}</td>
                         </tr>
                         <tr style="height: 45px;">
-                            <td><b style="font-size:1.1rem; color:#c92a2a;">Line 109: Net Tax Remittance / Refund</b></td>
-                            <td style="text-align:right;"><b style="font-size:1.1rem; color:#c92a2a;">${gst_ret['net_tax_due_line109']:,.2f}</b></td>
+                            <td><b style="font-size:1.1rem; color:{net_tax_color};">Line 109: Net Tax Remittance / Refund</b></td>
+                            <td style="text-align:right;"><b style="font-size:1.1rem; color:{net_tax_color};">${gst_ret['net_tax_due_line109']:,.2f}</b></td>
                         </tr>
                     </table>
                 </div>
@@ -377,10 +401,14 @@ def render_reports(db):
             total_exp = df[df['type'] == 'Expense']['abs_amount'].sum()
             net_flow = total_inc - total_exp
             
+            # Display cumulative metrics using premium color-blind-safe HTML cards
             m_col1, m_col2, m_col3 = st.columns(3)
-            m_col1.metric("Cumulative Deposits (Income)", f"${total_inc:,.2f}")
-            m_col2.metric("Cumulative Withdrawals (Expense)", f"${total_exp:,.2f}")
-            m_col3.metric("Net Cash Flow", f"${net_flow:,.2f}", delta=f"${net_flow:,.2f}")
+            with m_col1:
+                render_custom_metric_card("Cumulative Deposits (Income)", f"${total_inc:,.2f}", "📥", "#f8fafc", "#0072B2", "#E6F0FA")
+            with m_col2:
+                render_custom_metric_card("Cumulative Withdrawals (Expense)", f"${total_exp:,.2f}", "📤", "#f8fafc", "#E69F00", "#FFF5E6")
+            with m_col3:
+                render_custom_metric_card("Net Cash Flow", f"${net_flow:,.2f}", "💰", "#f8fafc", "#0072B2", "#E6F0FA")
             
             st.write("")
             
@@ -403,9 +431,9 @@ def render_reports(db):
             x = np.arange(len(monthly_summary))
             width = 0.35
             
-            ax.bar(x - width/2, monthly_summary['Income'], width, label='Income (Deposits)', color='#2e7d32', alpha=0.85)
-            ax.bar(x + width/2, monthly_summary['Expense'], width, label='Expense (Withdrawals)', color='#c62828', alpha=0.85)
-            ax.plot(x, monthly_summary['Net Flow'], color='#1976d2', marker='o', linewidth=2, label='Net Savings')
+            ax.bar(x - width/2, monthly_summary['Income'], width, label='Income (Deposits) [Pattern: ///]', color='#0072B2', hatch='///', alpha=0.85)
+            ax.bar(x + width/2, monthly_summary['Expense'], width, label='Expense (Withdrawals) [Pattern: \\\\\\]', color='#E69F00', hatch='\\\\\\', alpha=0.85)
+            ax.plot(x, monthly_summary['Net Flow'], color='#1F3A5F', marker='o', linewidth=2.5, label='Net Savings (Solid)')
             
             ax.set_title("Income vs Expense by Month", fontsize=12, fontweight='bold', pad=10)
             ax.set_xticks(x)
@@ -494,12 +522,16 @@ def render_reports(db):
             net_income_val = total_rev - total_opex
             exp_ratio_val = (total_opex / total_rev * 100) if total_rev > 0 else 0.0
             
-            # Metric Cards
+            # Metric Cards using color-blind-safe premium HTML layout
             met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-            met_col1.metric("Total Revenue", f"${total_rev:,.2f}")
-            met_col2.metric("Operating Expenses", f"${total_opex:,.2f}")
-            met_col3.metric("Net Income", f"${net_income_val:,.2f}")
-            met_col4.metric("Expense Ratio", f"{exp_ratio_val:.2f}%")
+            with met_col1:
+                render_custom_metric_card("Total Revenue", f"${total_rev:,.2f}", "📈", "#f8fafc", "#0072B2", "#E6F0FA")
+            with met_col2:
+                render_custom_metric_card("Operating Expenses", f"${total_opex:,.2f}", "💳", "#f8fafc", "#E69F00", "#FFF5E6")
+            with met_col3:
+                render_custom_metric_card("Net Income", f"${net_income_val:,.2f}", "⚖️", "#f8fafc", "#0072B2", "#E6F0FA")
+            with met_col4:
+                render_custom_metric_card("Expense Ratio", f"{exp_ratio_val:.2f}%", "％", "#f8fafc", "#1F3A5F", "#EAEFF5")
             
             st.write("")
             
@@ -510,7 +542,8 @@ def render_reports(db):
                     "category": "Total Revenue",
                     "amount": total_rev,
                     "percentage": 100.0,
-                    "color": "#2e7d32" # Dark green
+                    "color": "#0072B2", # Deep blue
+                    "hatch": ""
                 })
                 for _, row in df_operating.iterrows():
                     pct = (row['abs_amount'] / total_rev) * 100
@@ -518,7 +551,8 @@ def render_reports(db):
                         "category": row['category'],
                         "amount": row['abs_amount'],
                         "percentage": pct,
-                        "color": "#c62828" # Red
+                        "color": "#E69F00", # Warm orange
+                        "hatch": "///"
                     })
             else:
                 for _, row in df_operating.iterrows():
@@ -526,7 +560,8 @@ def render_reports(db):
                         "category": row['category'],
                         "amount": row['abs_amount'],
                         "percentage": 0.0,
-                        "color": "#c62828"
+                        "color": "#E69F00",
+                        "hatch": "///"
                     })
                     
             df_chart = pd.DataFrame(chart_data)
@@ -535,18 +570,23 @@ def render_reports(db):
                 # Render clean horizontal bar chart
                 fig_analysis, ax_analysis = plt.subplots(figsize=(10, 4.5))
                 colors = df_chart['color'].tolist()
+                hatches = df_chart['hatch'].tolist()
                 
                 bars = ax_analysis.barh(df_chart['category'][::-1], df_chart['percentage'][::-1], color=colors[::-1], height=0.55)
+                
+                # Apply hatches
+                for bar, hatch in zip(bars, hatches[::-1]):
+                    bar.set_hatch(hatch)
                 
                 # Add text labels on the bars
                 for bar, pct, amt in zip(bars, df_chart['percentage'][::-1], df_chart['amount'][::-1]):
                     width = bar.get_width()
                     if pct == 100.0:
                         ax_analysis.text(width + 1, bar.get_y() + bar.get_height()/2, f"${amt:,.2f} — 100%", 
-                                         va='center', ha='left', fontweight='bold', fontsize=9, color="#2e7d32")
+                                         va='center', ha='left', fontweight='bold', fontsize=9, color="#0072B2")
                     else:
                         ax_analysis.text(width + 1, bar.get_y() + bar.get_height()/2, f"{pct:.2f}% (${amt:,.2f})", 
-                                         va='center', ha='left', fontsize=9, color="#b71c1c")
+                                         va='center', ha='left', fontsize=9, color="#E69F00")
                 
                 ax_analysis.set_title(f"Revenue and Expenses by Category (% of Revenue) - {sel_month}", fontsize=11, fontweight='bold', pad=12)
                 ax_analysis.set_xlabel("% of Revenue")
@@ -587,8 +627,9 @@ def render_reports(db):
                     st.info("No expenses in this month.")
                 else:
                     fig_exp, ax_exp = plt.subplots(figsize=(6, 3.5))
-                    sns.barplot(data=cat_exp, x='abs_amount', y='category', palette='Reds_r', ax=ax_exp)
-                    ax_exp.set_title("Expenses by Category", fontsize=10, fontweight='bold')
+                    # Color blind safe warm orange bars with hatch pattern
+                    sns.barplot(data=cat_exp, x='abs_amount', y='category', color='#E69F00', hatch='///', ax=ax_exp)
+                    ax_exp.set_title("Expenses by Category [Pattern: ///]", fontsize=10, fontweight='bold')
                     ax_exp.set_xlabel("Amount ($)")
                     ax_exp.set_ylabel("")
                     ax_exp.xaxis.set_major_formatter(plt.FuncFormatter(lambda val, pos: f"${val:,.0f}"))
@@ -603,7 +644,8 @@ def render_reports(db):
                     st.info("No income deposits in this month.")
                 else:
                     fig_inc, ax_inc = plt.subplots(figsize=(6, 3.5))
-                    sns.barplot(data=cat_inc, x='abs_amount', y='category', palette='Greens_r', ax=ax_inc)
+                    # Color blind safe deep blue bars with hatch pattern
+                    sns.barplot(data=cat_inc, x='abs_amount', y='category', color='#0072B2', hatch='\\\\\\', ax=ax_inc)
                     ax_inc.set_title("Income by Category", fontsize=10, fontweight='bold')
                     ax_inc.set_xlabel("Amount ($)")
                     ax_inc.set_ylabel("")
