@@ -467,6 +467,120 @@ def render_reports(db):
             if not cat_exp.empty:
                 cat_exp = cat_exp.sort_values(by='abs_amount', ascending=False).reset_index(drop=True)
                 
+            # --- 📈 Expense Analysis vs Revenue Widget ---
+            st.markdown("---")
+            st.markdown("### 📊 Expense Analysis vs Revenue")
+            
+            # Calculate Revenue & Operating Expenses
+            total_rev = cat_inc['abs_amount'].sum() if not cat_inc.empty else 0.0
+            
+            # Identify excluded categories (Transfers/personal drawings)
+            excluded_categories = ["Personal", "CC Payment", "Transfer", "Credit Card Payment", "Personal Drawing"]
+            
+            operating_rows = []
+            excluded_rows = []
+            
+            for _, row in cat_exp.iterrows():
+                cat = row['category']
+                if any(x.lower() in cat.lower() for x in excluded_categories):
+                    excluded_rows.append(row)
+                else:
+                    operating_rows.append(row)
+                    
+            df_operating = pd.DataFrame(operating_rows) if operating_rows else pd.DataFrame(columns=['category', 'abs_amount'])
+            df_excluded = pd.DataFrame(excluded_rows) if excluded_rows else pd.DataFrame(columns=['category', 'abs_amount'])
+            
+            total_opex = df_operating['abs_amount'].sum() if not df_operating.empty else 0.0
+            net_income_val = total_rev - total_opex
+            exp_ratio_val = (total_opex / total_rev * 100) if total_rev > 0 else 0.0
+            
+            # Metric Cards
+            met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+            met_col1.metric("Total Revenue", f"${total_rev:,.2f}")
+            met_col2.metric("Operating Expenses", f"${total_opex:,.2f}")
+            met_col3.metric("Net Income", f"${net_income_val:,.2f}")
+            met_col4.metric("Expense Ratio", f"{exp_ratio_val:.2f}%")
+            
+            st.write("")
+            
+            # Build chart data
+            chart_data = []
+            if total_rev > 0:
+                chart_data.append({
+                    "category": "Total Revenue",
+                    "amount": total_rev,
+                    "percentage": 100.0,
+                    "color": "#2e7d32" # Dark green
+                })
+                for _, row in df_operating.iterrows():
+                    pct = (row['abs_amount'] / total_rev) * 100
+                    chart_data.append({
+                        "category": row['category'],
+                        "amount": row['abs_amount'],
+                        "percentage": pct,
+                        "color": "#c62828" # Red
+                    })
+            else:
+                for _, row in df_operating.iterrows():
+                    chart_data.append({
+                        "category": row['category'],
+                        "amount": row['abs_amount'],
+                        "percentage": 0.0,
+                        "color": "#c62828"
+                    })
+                    
+            df_chart = pd.DataFrame(chart_data)
+            
+            if not df_chart.empty:
+                # Render clean horizontal bar chart
+                fig_analysis, ax_analysis = plt.subplots(figsize=(10, 4.5))
+                colors = df_chart['color'].tolist()
+                
+                bars = ax_analysis.barh(df_chart['category'][::-1], df_chart['percentage'][::-1], color=colors[::-1], height=0.55)
+                
+                # Add text labels on the bars
+                for bar, pct, amt in zip(bars, df_chart['percentage'][::-1], df_chart['amount'][::-1]):
+                    width = bar.get_width()
+                    if pct == 100.0:
+                        ax_analysis.text(width + 1, bar.get_y() + bar.get_height()/2, f"${amt:,.2f} — 100%", 
+                                         va='center', ha='left', fontweight='bold', fontsize=9, color="#2e7d32")
+                    else:
+                        ax_analysis.text(width + 1, bar.get_y() + bar.get_height()/2, f"{pct:.2f}% (${amt:,.2f})", 
+                                         va='center', ha='left', fontsize=9, color="#b71c1c")
+                
+                ax_analysis.set_title(f"Revenue and Expenses by Category (% of Revenue) - {sel_month}", fontsize=11, fontweight='bold', pad=12)
+                ax_analysis.set_xlabel("% of Revenue")
+                ax_analysis.set_xlim(0, 115) # Leave space for text labels
+                ax_analysis.xaxis.set_major_formatter(plt.FuncFormatter(lambda val, pos: f"{val:.0f}%"))
+                sns.despine(left=True, bottom=True)
+                plt.tight_layout()
+                st.pyplot(fig_analysis)
+                
+                # Render Data Table
+                table_rows = []
+                if total_rev > 0:
+                    table_rows.append({
+                        "Category": "Total Revenue",
+                        "Amount ($)": f"{total_rev:,.2f}",
+                        "% of Revenue": "100.00%"
+                    })
+                for _, row in df_operating.iterrows():
+                    pct = (row['abs_amount'] / total_rev * 100) if total_rev > 0 else 0.0
+                    table_rows.append({
+                        "Category": row['category'],
+                        "Amount ($)": f"{row['abs_amount']:,.2f}",
+                        "% of Revenue": f"{pct:.2f}%"
+                    })
+                st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+                
+            # Excluded items disclaimer
+            if not df_excluded.empty:
+                ex_details = []
+                for _, row in df_excluded.iterrows():
+                    ex_details.append(f"{row['category']} (${row['abs_amount']:,.2f})")
+                st.info(f"ℹ️ Excluded from operating expenses: {', '.join(ex_details)}")
+                
+            st.markdown("---")
             with col_m_exp:
                 st.markdown(f"**Expenses Breakdown for {sel_month}**")
                 if cat_exp.empty:
