@@ -103,23 +103,41 @@ class SupabaseAdapter {
 
         // 5. Reminders
         if (/FROM reminders/i.test(cleanSql)) {
-            let query = this.client.from('reminders').select('*');
+            const { data: rems, error } = await this.client.from('reminders').select('*');
+            if (error) throw new Error(error.message);
+            
+            const { data: cls } = await this.client.from('clients').select('*');
+            const clMap = new Map((cls || []).map(c => [c.id, c]));
+            
+            const { data: rts } = await this.client.from('reminder_types').select('*');
+            const rtMap = new Map((rts || []).map(t => [t.id, t]));
+
+            let list = (rems || []).map(r => {
+                const cl = clMap.get(r.client_id) || {};
+                const rt = rtMap.get(r.reminder_type_id) || {};
+                return {
+                    id: r.id,
+                    client_id: r.client_id,
+                    reminder_type_id: r.reminder_type_id,
+                    start_due_date: r.first_due_date || r.start_due_date || r.current_due_date,
+                    frequency: r.frequency || 'Annually',
+                    status: r.status || 'Active',
+                    client_email: cl.email || '',
+                    client_name: cl.name || '',
+                    business_name: cl.business_name || '',
+                    filing_name: rt.name || ''
+                };
+            });
+
+            if (/WHERE r.id = \?/i.test(cleanSql) && params.length > 0) {
+                list = list.filter(x => x.id === params[0]);
+            }
             if (/WHERE id = \?/i.test(cleanSql) && params.length > 0) {
-                query = query.eq('id', params[0]);
+                list = list.filter(x => x.id === params[0]);
             }
             if (/WHERE status = 'Active'/i.test(cleanSql)) {
-                query = query.eq('status', 'Active');
+                list = list.filter(x => x.status === 'Active');
             }
-            const { data, error } = await query;
-            if (error) throw new Error(error.message);
-            const list = (data || []).map(r => ({
-                id: r.id,
-                client_id: r.client_id,
-                reminder_type_id: r.reminder_type_id,
-                start_due_date: r.first_due_date || r.start_due_date || r.current_due_date,
-                frequency: r.frequency || 'Annually',
-                status: r.status || 'Active'
-            }));
             return isCount ? [{ count: list.length }] : list;
         }
 
