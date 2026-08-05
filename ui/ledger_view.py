@@ -4,7 +4,7 @@ from services.client_service import get_clients, get_client_by_id
 from services.ledger_service import update_transaction_category, update_transaction_gst_manual
 from services.ai_service import suggest_merchant_category, VALID_CATEGORIES
 from services.rule_service import get_client_rules, create_category_rule, match_local_rules
-from core.models import Transaction, CategoryRule, ClientBankAccount
+from core.models import Transaction, CategoryRule, ClientBankAccount, CustomCategory
 
 def render_ledger_editor(db):
     """
@@ -39,7 +39,9 @@ def render_ledger_editor(db):
     txs = db.query(Transaction).filter(Transaction.client_id == client_id).order_by(Transaction.id.asc()).all()
     # Dynamic categories to prevent empty rendering for custom categories
     db_categories = [t.category for t in txs if t.category]
-    options_categories = sorted(list(set(VALID_CATEGORIES + db_categories)))
+    custom_categories = db.query(CustomCategory).filter(CustomCategory.client_id == client_id).order_by(CustomCategory.name).all()
+    custom_cat_names = [category.name for category in custom_categories]
+    options_categories = sorted(list(set(VALID_CATEGORIES + custom_cat_names + db_categories)))
     
     # Instantiate the three workspace tabs
     tab_reclass, tab_recon, tab_tx_cat = st.tabs([
@@ -866,7 +868,7 @@ def render_ledger_editor(db):
             with col_r1:
                 st.write("**Create New Keyword Rule**")
                 rule_kw = st.text_input("If Merchant Name contains...", placeholder="e.g. HUSKY, STARBUCKS, CRA")
-                rule_cat = st.selectbox("Assign Category", VALID_CATEGORIES, key="rule_cat_select")
+                rule_cat = st.selectbox("Assign Category", options_categories, key="rule_cat_select")
                 
                 col_g1, col_g2 = st.columns(2)
                 with col_g1:
@@ -955,7 +957,7 @@ def render_ledger_editor(db):
                                     matched_cat = None
                                     
                                     # 1. Direct lowercase match
-                                    for vc in VALID_CATEGORIES:
+                                    for vc in options_categories:
                                         if vc.lower().strip() == cat_clean:
                                             matched_cat = vc
                                             break
@@ -1094,7 +1096,7 @@ def render_ledger_editor(db):
                             "Keyword Match": st.column_config.TextColumn("Keyword Match", disabled=True),
                             "Map Category": st.column_config.SelectboxColumn(
                                 "Map Category",
-                                options=VALID_CATEGORIES,
+                                options=options_categories,
                                 required=True
                             ),
                             "GST Treatment": st.column_config.SelectboxColumn(
@@ -1143,7 +1145,7 @@ def render_ledger_editor(db):
                                 db.commit()
                                 st.toast(f"Updated rule '{db_rule.keyword}'!", icon="✅")
                                 st.rerun()
-                                 
+
                     # Explicit rule deletion panel
                     st.write("")
                     st.markdown("##### 🗑️ Delete Rule")
@@ -1161,6 +1163,57 @@ def render_ledger_editor(db):
                                 db.commit()
                                 st.toast(f"Deleted rule '{selected_del_kw}' successfully!", icon="🗑️")
                                 st.rerun()
+
+            st.write("DEBUG: Reached line 1167 in ledger view")
+            st.markdown("#### 📁 Custom Category Manager")
+            st.caption("Create client-specific accounts for transaction classification and keyword rules.")
+
+            new_custom_category = st.text_input(
+                "New category name",
+                placeholder="e.g. Software Subscriptions",
+                key="new_custom_category_name"
+            )
+            if st.button("Create Custom Category", type="secondary", key="create_custom_category_btn"):
+                category_name = new_custom_category.strip()
+                if not category_name:
+                    st.error("Please enter a category name.")
+                elif any(name.casefold() == category_name.casefold() for name in options_categories):
+                    st.error("That category already exists.")
+                else:
+                    db.add(CustomCategory(client_id=client_id, name=category_name))
+                    db.commit()
+                    st.success(f"Created custom category '{category_name}'.")
+                    st.rerun()
+
+            if not custom_categories:
+                st.info("No custom categories have been created for this client yet.")
+            else:
+                custom_category_rows = pd.DataFrame([
+                    {"ID": category.id, "Category": category.name}
+                    for category in custom_categories
+                ])
+                st.dataframe(custom_category_rows, use_container_width=True, hide_index=True)
+
+                category_delete_options = {category.name: category.id for category in custom_categories}
+                delete_col, delete_button_col = st.columns([3, 1])
+                with delete_col:
+                    category_to_delete = st.selectbox(
+                        "Select custom category to delete",
+                        list(category_delete_options.keys()),
+                        key="custom_category_delete_select"
+                    )
+                with delete_button_col:
+                    st.write("")
+                    if st.button("Delete Category", type="primary", use_container_width=True, key="delete_custom_category_btn"):
+                        custom_category = db.query(CustomCategory).filter(
+                            CustomCategory.id == category_delete_options[category_to_delete],
+                            CustomCategory.client_id == client_id
+                        ).first()
+                        if custom_category:
+                            db.delete(custom_category)
+                            db.commit()
+                            st.success(f"Deleted custom category '{category_to_delete}'.")
+                            st.rerun()
                                 
 
     with tab_tx_cat:
