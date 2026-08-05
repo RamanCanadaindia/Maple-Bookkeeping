@@ -120,6 +120,36 @@ def check_and_update_schema(db_engine):
         except Exception as e:
             print(f"[Schema Update Error] Could not create user_client_access table: {e}")
 
+    # Check custom_categories table
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("SELECT 1 FROM custom_categories LIMIT 1"))
+    except Exception:
+        print("[Schema Update] Creating custom_categories table...")
+        try:
+            with db_engine.begin() as conn:
+                if "postgresql" in str(db_engine.url):
+                    conn.execute(text("""
+                        CREATE TABLE custom_categories (
+                            id SERIAL PRIMARY KEY,
+                            client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                            name VARCHAR NOT NULL
+                        )
+                    """))
+                    conn.execute(text("CREATE INDEX ix_custom_categories_id ON custom_categories (id)"))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE custom_categories (
+                            id INTEGER PRIMARY KEY,
+                            client_id INTEGER NOT NULL,
+                            name VARCHAR NOT NULL,
+                            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                        )
+                    """))
+                    conn.execute(text("CREATE INDEX ix_custom_categories_id ON custom_categories (id)"))
+        except Exception as e:
+            print(f"[Schema Update Error] Could not create custom_categories table: {e}")
+
 # Run schema update on import
 check_and_update_schema(engine)
 

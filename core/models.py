@@ -144,6 +144,16 @@ class CategoryRule(Base):
     client = relationship("Client")
 
 
+class CustomCategory(Base):
+    __tablename__ = "custom_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+
+    client = relationship("Client")
+
+
 class JournalEntry(Base):
     __tablename__ = "journal_entries"
     
