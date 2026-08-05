@@ -462,7 +462,7 @@ def render_ledger_editor(db):
                     "Select": st.column_config.CheckboxColumn("Select", default=False),
                     "TxID": st.column_config.NumberColumn("ID", disabled=True),
                     "Account": st.column_config.TextColumn("Account", disabled=True),
-                    "Date": st.column_config.TextColumn("Date", disabled=True),
+                    "Date": st.column_config.TextColumn("Date", disabled=False, help="YYYY-MM-DD format"),
                     "Original Memo": st.column_config.TextColumn("Original Memo", disabled=True),
                     "Merchant": st.column_config.TextColumn("Merchant", disabled=True),
                     "Withdrawal / Expense ($)": st.column_config.NumberColumn("Withdrawal / Expense", format="$%.2f", disabled=True),
@@ -476,7 +476,7 @@ def render_ledger_editor(db):
                         required=True
                     )
                 },
-                disabled=["TxID", "Account", "Date", "Original Memo", "Merchant", "Withdrawal / Expense ($)", "Deposit / Income ($)"],
+                disabled=["TxID", "Account", "Original Memo", "Merchant", "Withdrawal / Expense ($)", "Deposit / Income ($)"],
                 num_rows="dynamic",
                 use_container_width=True,
                 key="ledger_data_editor"
@@ -597,6 +597,30 @@ def render_ledger_editor(db):
                         update_transaction_gst_manual(db, tx_id, new_gst, new_itc)
                     st.toast(f"Transaction tax values updated manually!", icon="✅")
                     st.rerun()
+                    
+                # 3. Catch manual Date changes
+                old_date_str = df.iloc[index]["Date"]
+                new_date_str = row["Date"]
+                if old_date_str != new_date_str:
+                    try:
+                        from datetime import datetime
+                        new_date = datetime.strptime(new_date_str.strip(), "%Y-%m-%d")
+                        tx = db.query(Transaction).filter(Transaction.id == tx_id).first()
+                        if tx:
+                            tx.date = new_date
+                            db.commit()
+                            
+                            # Also update the date on the associated double-entry GL journal entry!
+                            from core.models import JournalEntry
+                            je = db.query(JournalEntry).filter(JournalEntry.transaction_id == tx_id).first()
+                            if je:
+                                je.date = new_date
+                                db.commit()
+                                
+                            st.toast(f"Transaction date updated to {new_date_str}!", icon="📅")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Invalid date format: {new_date_str}. Please use YYYY-MM-DD.")
 
     # ----------------------------------------------------
     # TAB 2: Bank Account Reconciliation & Rule Management

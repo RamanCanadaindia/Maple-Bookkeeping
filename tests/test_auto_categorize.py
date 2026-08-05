@@ -137,3 +137,39 @@ def test_bookkeeper_access_scoping(db_session):
     # Check permissions scoping: assigned bookkeeper cannot process an unassigned client
     assert verify_client_access(db_session, client_a.id, bk) is True
     assert verify_client_access(db_session, client_b.id, bk) is False
+
+def test_transaction_date_modification(db_session):
+    client_a = Client(business_name="Client A", fiscal_year_end="Dec 31", status="Active")
+    db_session.add(client_a)
+    db_session.commit()
+    
+    tx = Transaction(
+        client_id=client_a.id,
+        account_id=1,
+        date=datetime.datetime(2026, 1, 1),
+        original_description="TEST TX",
+        cleaned_description="TEST TX",
+        category="Office Supplies",
+        amount=-20.0
+    )
+    db_session.add(tx)
+    db_session.commit()
+    
+    from core.models import JournalEntry
+    je = JournalEntry(
+        client_id=client_a.id,
+        transaction_id=tx.id,
+        date=tx.date,
+        description=tx.description
+    )
+    db_session.add(je)
+    db_session.commit()
+    
+    # Modify date
+    new_date = datetime.datetime(2026, 2, 15)
+    tx.date = new_date
+    je.date = new_date
+    db_session.commit()
+    
+    assert tx.date == datetime.datetime(2026, 2, 15)
+    assert je.date == datetime.datetime(2026, 2, 15)
