@@ -1089,20 +1089,27 @@ def render_ledger_editor(db):
                 
                 keyword_sort_order = st.selectbox(
                     "Keyword order",
-                    ["Ascending (A–Z)", "Descending (Z–A)", "Rule ID"],
+                    [
+                        "Keyword Match (A–Z)",
+                        "Keyword Match (Z–A)",
+                        "Rule ID (Ascending)",
+                        "Rule ID (Descending)"
+                    ],
                     key="keyword_rule_sort_order",
                 )
 
-                if keyword_sort_order == "Ascending (A–Z)":
+                if keyword_sort_order == "Keyword Match (A–Z)":
                     rules = sorted(rules, key=lambda rule: (rule.keyword or "").casefold())
-                elif keyword_sort_order == "Descending (Z–A)":
+                elif keyword_sort_order == "Keyword Match (Z–A)":
                     rules = sorted(
                         rules,
                         key=lambda rule: (rule.keyword or "").casefold(),
                         reverse=True,
                     )
-                else:
+                elif keyword_sort_order == "Rule ID (Ascending)":
                     rules = sorted(rules, key=lambda rule: rule.id)
+                else:
+                    rules = sorted(rules, key=lambda rule: rule.id, reverse=True)
                 
                 if not rules:
                     st.info("No keyword rules defined for this client yet.")
