@@ -1086,6 +1086,24 @@ def render_ledger_editor(db):
                 st.write("**Existing Client Keyword Rules**")
                 st.info("Double-click any cell below to edit the category or GST parameters. Settings are committed instantly.")
                 rules = get_client_rules(db, client_id)
+                
+                keyword_sort_order = st.selectbox(
+                    "Keyword order",
+                    ["Ascending (A–Z)", "Descending (Z–A)", "Rule ID"],
+                    key="keyword_rule_sort_order",
+                )
+
+                if keyword_sort_order == "Ascending (A–Z)":
+                    rules = sorted(rules, key=lambda rule: (rule.keyword or "").casefold())
+                elif keyword_sort_order == "Descending (Z–A)":
+                    rules = sorted(
+                        rules,
+                        key=lambda rule: (rule.keyword or "").casefold(),
+                        reverse=True,
+                    )
+                else:
+                    rules = sorted(rules, key=lambda rule: rule.id)
+                
                 if not rules:
                     st.info("No keyword rules defined for this client yet.")
                 else:
