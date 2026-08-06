@@ -999,9 +999,9 @@ def render_ledger_editor(db):
                                     # 2. Fuzzy mapping dictionary
                                     if not matched_cat:
                                         fuzzy_map = {
-                                            "bank charges": "Bank Fees",
-                                            "bank fee": "Bank Fees",
-                                            "bank fees": "Bank Fees",
+                                            "bank charges": "Bank Charges",
+                                            "bank fee": "Bank Charges",
+                                            "bank fees": "Bank Charges",
                                             "fuel": "Auto Fuel",
                                             "gas": "Auto Fuel",
                                             "auto fuel": "Auto Fuel",

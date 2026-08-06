@@ -23,7 +23,7 @@ VALID_CATEGORIES = [
     "Rent",
     "Insurance",
     "Subcontractors",
-    "Bank Fees",
+    "Bank Charges",
     "Taxes & Licenses",
     "Opening Balance Equity",
     "Due to Related Party",
@@ -123,6 +123,6 @@ def _local_heuristic_suggest(merchant_name: str) -> dict:
     elif "FACEBOOK" in m_upper or "GOOGLE" in m_upper or "ADWORDS" in m_upper or "ADS" in m_upper or "FLYER" in m_upper:
         return {"category": "Advertising", "confidence": 0.9, "explanation": "Matched advertising provider keyword."}
     elif "INTEREST" in m_upper or "FEE" in m_upper or "CHARGE" in m_upper or "RBC" in m_upper or "TD" in m_upper or "BANK" in m_upper:
-        return {"category": "Bank Fees", "confidence": 0.8, "explanation": "Matched financial institution charge keyword."}
+        return {"category": "Bank Charges", "confidence": 0.8, "explanation": "Matched financial institution charge keyword."}
         
     return {"category": "Suspense Expense", "confidence": 0.5, "explanation": "Unrecognized merchant, mapped to suspense."}
