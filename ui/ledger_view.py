@@ -935,6 +935,13 @@ def render_ledger_editor(db):
                         
                 st.write("---")
                 st.write("**📤 Batch Import Rules (CSV or Excel)**")
+                st.info(
+                    "💡 **Spreadsheet Formatting Guide:**\n\n"
+                    "Your Excel or CSV file should contain the following columns:\n"
+                    "1. **`Keyword`** (e.g. `GOOGLE`, `PETRO`) — *Required*\n"
+                    "2. **`Category`** (e.g. `Office Supplies`, `Auto Fuel`) — *Required*\n"
+                    "3. **`GST Treatment`** (e.g. `Standard`, `Exempt`, or `Zero-Rated`) — *Optional (Defaults to Standard)*"
+                )
                 uploaded_rules_file = st.file_uploader(
                     "Upload Rules Spreadsheet", 
                     type=["csv", "xlsx"], 
