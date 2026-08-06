@@ -173,3 +173,45 @@ def test_transaction_date_modification(db_session):
     
     assert tx.date == datetime.datetime(2026, 2, 15)
     assert je.date == datetime.datetime(2026, 2, 15)
+
+def test_batch_import_rules_with_gst(db_session):
+    client_a = Client(business_name="Client A", fiscal_year_end="Dec 31", status="Active")
+    db_session.add(client_a)
+    db_session.commit()
+    
+    # Simulate pandas dataframe rows
+    df_mock_rules = [
+        {"Keyword": "AMAZON", "Category": "Office Supplies", "GST Treatment": "Exempt"},
+        {"Keyword": "SHELL", "Category": "Auto Fuel", "GST Treatment": "Zero-Rated"},
+        {"Keyword": "ROGERS", "Category": "Telephone Expense", "GST Treatment": "Standard"}
+    ]
+    
+    for row in df_mock_rules:
+        kw = row["Keyword"]
+        cat = row["Category"]
+        raw_gst = row["GST Treatment"].strip().lower()
+        
+        gst_val = "Standard"
+        if "exempt" in raw_gst:
+            gst_val = "Exempt"
+        elif "zero" in raw_gst:
+            gst_val = "Zero-Rated"
+            
+        create_category_rule(db_session, client_a.id, kw, cat, gst_treatment=gst_val)
+        
+    # Query rules back
+    from core.models import CategoryRule
+    rules = db_session.query(CategoryRule).filter(CategoryRule.client_id == client_a.id).all()
+    assert len(rules) == 3
+    
+    amazon_rule = next(r for r in rules if r.keyword == "AMAZON")
+    assert amazon_rule.category == "Office Supplies"
+    assert amazon_rule.gst_treatment == "Exempt"
+    
+    shell_rule = next(r for r in rules if r.keyword == "SHELL")
+    assert shell_rule.category == "Auto Fuel"
+    assert shell_rule.gst_treatment == "Zero-Rated"
+    
+    rogers_rule = next(r for r in rules if r.keyword == "ROGERS")
+    assert rogers_rule.category == "Telephone Expense"
+    assert rogers_rule.gst_treatment == "Standard"

@@ -955,12 +955,15 @@ def render_ledger_editor(db):
                                 
                             kw_col = None
                             cat_col = None
+                            gst_col = None
                             for col in df_rules.columns:
                                 col_lower = str(col).lower().strip()
                                 if "keyword" in col_lower or "match" in col_lower:
                                     kw_col = col
                                 elif "category" in col_lower or "coa" in col_lower or "account" in col_lower:
                                     cat_col = col
+                                elif "gst" in col_lower or "tax" in col_lower or "treatment" in col_lower:
+                                    gst_col = col
                                     
                             if kw_col is None or cat_col is None:
                                 st.error("Uploaded file must contain 'Keyword' and 'Category' columns.")
@@ -1027,7 +1030,15 @@ def render_ledger_editor(db):
                                         matched_cat = "Suspense Expense"
                                         
                                     if kw_val and matched_cat:
-                                        rule = create_category_rule(db, client_id, kw_val, matched_cat)
+                                        gst_val = "Standard"
+                                        if gst_col is not None and gst_col in row_item:
+                                            raw_gst = str(row_item[gst_col]).strip().lower()
+                                            if "exempt" in raw_gst:
+                                                gst_val = "Exempt"
+                                            elif "zero" in raw_gst:
+                                                gst_val = "Zero-Rated"
+                                                
+                                        rule = create_category_rule(db, client_id, kw_val, matched_cat, gst_treatment=gst_val)
                                         imported += 1
                                         
                                         # Auto-apply to matched suspense transactions in this batch run
