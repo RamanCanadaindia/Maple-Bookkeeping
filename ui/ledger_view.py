@@ -1081,6 +1081,19 @@ def render_ledger_editor(db):
                         db.commit()
                         st.success(f"Successfully copied {copied_count} rules from {src_client_name}!")
                         st.rerun()
+                        
+                st.write("---")
+                with st.expander("⚡ Bulk Actions on Rules"):
+                    st.write("Perform operations on all keyword rules for the current company.")
+                    if st.button("Make GST Treatment 'Exempt' for All Rules", type="secondary", use_container_width=True):
+                        with st.spinner("Updating rules..."):
+                            db.query(CategoryRule).filter(CategoryRule.client_id == client_id).update(
+                                {CategoryRule.gst_treatment: "Exempt"},
+                                synchronize_session=False
+                            )
+                            db.commit()
+                        st.success("Successfully set GST Treatment to 'Exempt' for all keyword rules!")
+                        st.rerun()
                             
             with col_r2:
                 st.write("**Existing Client Keyword Rules**")
