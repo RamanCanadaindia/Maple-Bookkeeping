@@ -86,8 +86,8 @@ def compile_income_statement(db: Session, client_id: int) -> dict:
         if name_lower in bank_accs or name_lower in ["gst receivable", "gst payable"]:
             continue
             
-        # If it's a credit balance in revenue or sales
-        if ("revenue" in name_lower or "sales" in name_lower or "fees" in name_lower) and "bank fees" not in name_lower:
+        # If it's a credit balance in revenue or sales or income
+        if ("revenue" in name_lower or "sales" in name_lower or "fees" in name_lower or "income" in name_lower) and "bank fees" not in name_lower:
             rev_val = abs(val) # Revenue is credit normal
             revenues[name] = rev_val
             total_rev += rev_val

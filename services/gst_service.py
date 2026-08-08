@@ -92,20 +92,35 @@ def generate_gst_return_summary(db: Session, client_id: int) -> dict:
         gst_amt = tx.gst_amount if tx.gst_amount is not None else 0.0
         itc_eligible = tx.itc_amount if tx.itc_amount is not None else 0.0
         
-        if tx.amount > 0:
-            # Revenue (deposit)
-            gross_sales += tx.amount
-            gst_collected += gst_amt
-        else:
-            # Expense (withdrawal)
-            gst_paid += gst_amt
-            # Only claim ITCs if Regular Method or Capital purchases
-            if client.gst_method == "Regular":
-                itc_claimed += itc_eligible
+        category_lower = (tx.category or "").lower()
+        is_revenue = ("revenue" in category_lower or "sales" in category_lower or "fees" in category_lower or "income" in category_lower) and "bank fees" not in category_lower
+
+        if is_revenue:
+            if tx.amount > 0:
+                gross_sales += (tx.amount - gst_amt)
+                gst_collected += gst_amt
             else:
-                # Quick Method: Can only claim ITCs on Capital Assets
-                if "capital" in (tx.category or "").lower() or "equipment" in (tx.category or "").lower():
+                # Customer refund/credit note
+                gross_sales += (tx.amount + gst_amt)
+                gst_collected -= gst_amt
+        else:
+            if tx.amount < 0:
+                gst_paid += gst_amt
+                # Only claim ITCs if Regular Method or Capital purchases
+                if client.gst_method == "Regular":
                     itc_claimed += itc_eligible
+                else:
+                    # Quick Method: Can only claim ITCs on Capital Assets
+                    if "capital" in category_lower or "equipment" in category_lower:
+                        itc_claimed += itc_eligible
+            else:
+                # Expense refund/reimbursement
+                gst_paid -= gst_amt
+                if client.gst_method == "Regular":
+                    itc_claimed -= itc_eligible
+                else:
+                    if "capital" in category_lower or "equipment" in category_lower:
+                        itc_claimed -= itc_eligible
                     
     # Quick method remittance calculation
     # e.g., BC services rate is 3.6% of gross sales (including GST)
