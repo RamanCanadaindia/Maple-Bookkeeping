@@ -1012,7 +1012,7 @@ def render_ledger_editor(db):
                                             "gas": "Auto Fuel",
                                             "auto fuel": "Auto Fuel",
                                             "income": "Sales Revenue",
-                                            "trade sales": "Sales Revenue",
+                                            "trade sales": "Trade Sales",
                                             "sales": "Sales Revenue",
                                             "revenue": "Sales Revenue",
                                             "meals": "Meals & Entertainment",

@@ -14,6 +14,7 @@ def _get_gemini_api_key() -> str:
 
 # Standard Chart of Accounts Categories for Canadian Bookkeeping
 VALID_CATEGORIES = [
+    "Trade Sales",
     "Sales Revenue",
     "Auto Fuel",
     "Meals & Entertainment",

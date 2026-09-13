@@ -89,6 +89,28 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             break
             
     header_row = [str(x).lower().strip() for x in rows[header_idx]]
+
+    # 1. First find Category column: exact match first, strictly ignoring "suggested category"
+    for idx, h in enumerate(header_row):
+        if h in ("category", "categories", "cat", "classification", "expense category", "income category"):
+            category_col = idx
+            break
+    if category_col == -1:
+        for idx, h in enumerate(header_row):
+            if "suggested" not in h and "predicted" not in h and any(k in h for k in [
+                "category", "categories", "cat", "classification", "class",
+                "expense category", "income category", "mapping", "gl code",
+                "gl account", "chart of accounts", "coa"
+            ]):
+                category_col = idx
+                break
+    if category_col == -1:
+        for idx, h in enumerate(header_row):
+            if h in ["type", "expense type", "category/type"]:
+                category_col = idx
+                break
+
+    # 2. Map standard financial columns
     for idx, h in enumerate(header_row):
         if "date" in h:
             date_col = idx
@@ -100,21 +122,8 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             debit_col = idx
         elif "credit" in h or "deposit" in h or "in" in h:
             credit_col = idx
-        elif "balance" in h:
+        elif "balance" in h and "opening" not in h:
             bal_col = idx
-        elif any(k in h for k in [
-            "category", "categories", "cat", "classification", "class",
-            "expense category", "income category", "mapping", "gl code",
-            "gl account", "chart of accounts", "coa"
-        ]):
-            category_col = idx
-
-    # If still no category column found, check for specific 'expense type' or 'type' column
-    if category_col == -1:
-        for idx, h in enumerate(header_row):
-            if h in ["type", "expense type", "category/type"]:
-                category_col = idx
-                break
             
     extracted = []
     for r in rows[header_idx + 1:]:
