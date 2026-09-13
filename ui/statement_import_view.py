@@ -6,9 +6,10 @@ from services.extractor_service import parse_csv_statement, parse_pdf_statement,
 from services.duplicate_service import check_is_duplicate
 from services.transfer_service import detect_internal_transfers
 from services.audit_service import log_action
-from core.models import Transaction, ClientBankAccount
+from core.models import Transaction, ClientBankAccount, CustomCategory
 from services.local_mapping_service import LocalMappingEngine, learn_mapping
 from services.google_sheets_service import google_credentials_configured
+from services.ai_service import VALID_CATEGORIES
 
 def render_statement_import(db):
     """
@@ -202,15 +203,28 @@ def render_statement_import(db):
                                     if not all_sheet_rows:
                                         st.error("The selected worksheet is empty.")
                                     else:
-                                        header = all_sheet_rows[0]  # row 1 = header
+                                        # Locate the real header row within the first 15 rows
+                                        header_idx = 0
+                                        for idx, r in enumerate(all_sheet_rows[:15]):
+                                            row_lower = [str(x).lower().strip() for x in r]
+                                            if any("date" in h for h in row_lower):
+                                                header_idx = idx
+                                                break
+                                        header = list(all_sheet_rows[header_idx])
+
                                         # Sheet rows are 1-indexed; data starts at row 2 (index 1)
                                         # Slice: from_row-1 to to_row (both inclusive, 0-indexed)
                                         selected_data = all_sheet_rows[int(from_row) - 1 : int(to_row)]
                                         if not selected_data:
                                             st.error(f"No data found between rows {int(from_row)} and {int(to_row)}.")
                                         else:
+                                            # Align column widths so category column isn't truncated if rows vary in length
+                                            max_cols = max(len(header), max((len(r) for r in selected_data), default=len(header)))
+                                            padded_header = header + [""] * (max_cols - len(header))
+                                            padded_data = [r + [""] * (max_cols - len(r)) for r in selected_data]
+
                                             buf = io.StringIO()
-                                            _csv.writer(buf).writerows([header] + selected_data)
+                                            _csv.writer(buf).writerows([padded_header] + padded_data)
                                             raw_txs = parse_csv_statement(buf.getvalue().encode("utf-8"))
                                             if not raw_txs:
                                                 st.error("Could not detect transactions. Check that the sheet has Date, Description, and Amount columns.")
@@ -218,7 +232,12 @@ def render_statement_import(db):
                                                 st.session_state["parsed_tx_batch"] = raw_txs
                                                 st.session_state["active_import_client_id"] = client_id
                                                 st.session_state["active_import_account_id"] = account_id
-                                                st.success(f"✅ Loaded {len(raw_txs)} transactions from rows {int(from_row)}–{int(to_row)} of **{selected_ws}**. Scroll down to review and post.")
+                                                cat_count = sum(1 for t in raw_txs if (t.get("category") or "").strip())
+                                                st.success(f"✅ Loaded {len(raw_txs)} transactions from rows {int(from_row)}–{int(to_row)} of **{selected_ws}**.")
+                                                if cat_count > 0:
+                                                    st.info(f"🏷️ **Category Column Detected**: {cat_count} of {len(raw_txs)} transactions have categories imported directly from your Google Sheet!")
+                                                else:
+                                                    st.caption("ℹ️ No Category column found in sheet (transactions will be auto-categorized by local rules).")
                                 except Exception as e:
                                     st.error(f"Google Sheets import failed: {e}")
 
@@ -347,8 +366,17 @@ def render_statement_import(db):
                     
                 cat_edited = str(row.get("Category", "")).strip()
                 cat_final = cat_edited if cat_edited else orig_tx.get("category", None)
-                if cat_final == "":
+                if cat_final in ("", "None", "nan", "null"):
                     cat_final = None
+
+                # Auto-register imported custom category for this client if not in standard list
+                if cat_final and cat_final not in VALID_CATEGORIES:
+                    cat_exists = db.query(CustomCategory).filter(
+                        CustomCategory.client_id == client_id,
+                        CustomCategory.name == cat_final
+                    ).first()
+                    if not cat_exists:
+                        db.add(CustomCategory(client_id=client_id, name=cat_final))
                     
                 # Create Database Transaction ORM entry
                 db_tx = Transaction(

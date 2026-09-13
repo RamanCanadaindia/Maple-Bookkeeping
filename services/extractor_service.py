@@ -92,7 +92,7 @@ def parse_csv_statement(file_bytes: bytes) -> list:
     for idx, h in enumerate(header_row):
         if "date" in h:
             date_col = idx
-        elif "description" in h or "memo" in h or "detail" in h or "particulars" in h or "name" in h:
+        elif any(k in h for k in ["description", "memo", "detail", "particulars", "name", "payee", "merchant"]):
             desc_col = idx
         elif "amount" in h or "value" in h:
             amount_col = idx
@@ -102,8 +102,19 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             credit_col = idx
         elif "balance" in h:
             bal_col = idx
-        elif "category" in h or "type" in h or "account" in h:
+        elif any(k in h for k in [
+            "category", "categories", "cat", "classification", "class",
+            "expense category", "income category", "mapping", "gl code",
+            "gl account", "chart of accounts", "coa"
+        ]):
             category_col = idx
+
+    # If still no category column found, check for specific 'expense type' or 'type' column
+    if category_col == -1:
+        for idx, h in enumerate(header_row):
+            if h in ["type", "expense type", "category/type"]:
+                category_col = idx
+                break
             
     extracted = []
     for r in rows[header_idx + 1:]:
@@ -166,7 +177,9 @@ def parse_csv_statement(file_bytes: bytes) -> list:
             
         cat_val = None
         if category_col != -1 and category_col < len(r) and r[category_col]:
-            cat_val = r[category_col].strip()
+            cleaned_cat = str(r[category_col]).strip()
+            if cleaned_cat and cleaned_cat.lower() not in ("none", "null", "nan", "-"):
+                cat_val = cleaned_cat
             
         extracted.append({
             "date": parsed_date,
