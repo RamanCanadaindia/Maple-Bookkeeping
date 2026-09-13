@@ -24,10 +24,46 @@ def clean_amount_str(val_str: str) -> float:
     val_float = float(cleaned)
     return -val_float if is_negative else val_float
 
+def parse_xlsx_statement(file_bytes: bytes) -> list:
+    """
+    Parses an Excel (.xlsx) file — including exports from Google Sheets —
+    by converting the first sheet to CSV and reusing the CSV pipeline.
+    """
+    df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl", dtype=str)
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    return parse_csv_statement(csv_bytes)
+
+
+def parse_gsheet_url(sheet_url: str, worksheet_index: int = 0) -> list:
+    """
+    Reads a Google Sheet by URL using the configured service account and
+    converts its contents through the standard CSV parsing pipeline.
+    """
+    import gspread
+    from services.google_sheets_service import _google_credentials
+
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly",
+              "https://www.googleapis.com/auth/drive.readonly"]
+    creds = _google_credentials(scopes)
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_url(sheet_url)
+    worksheets = sh.worksheets()
+    ws = worksheets[worksheet_index]
+    rows = ws.get_all_values()
+    if not rows:
+        return []
+    buf = io.StringIO()
+    import csv as _csv
+    writer = _csv.writer(buf)
+    writer.writerows(rows)
+    return parse_csv_statement(buf.getvalue().encode("utf-8"))
+
+
 def parse_csv_statement(file_bytes: bytes) -> list:
     """
     Parses a CSV bank statement and maps columns automatically.
     """
+
     content = file_bytes.decode("utf-8", errors="ignore")
     reader = csv.reader(io.StringIO(content))
     rows = list(reader)

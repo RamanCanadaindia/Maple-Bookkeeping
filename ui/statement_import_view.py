@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from services.client_service import get_clients, get_client_by_id
-from services.extractor_service import parse_csv_statement, parse_pdf_statement
+from services.extractor_service import parse_csv_statement, parse_pdf_statement, parse_xlsx_statement
 from services.duplicate_service import check_is_duplicate
 from services.transfer_service import detect_internal_transfers
 from services.audit_service import log_action
 from core.models import Transaction, ClientBankAccount
 from services.local_mapping_service import LocalMappingEngine, learn_mapping
+from services.google_sheets_service import google_credentials_configured
 
 def render_statement_import(db):
     """
@@ -51,60 +52,129 @@ def render_statement_import(db):
         acc_label = st.selectbox("Linked Bank Ledger", list(acc_options.keys()))
         account_id = acc_options[acc_label]
         
-    # File Uploader
-    uploaded_file = st.file_uploader(
-        "Drag & Drop Statement File (PDF or CSV)", 
-        type=["pdf", "csv"], 
-        help="Supports digital bank statements from RBC, TD, CIBC, BMO, and Scotiabank."
-    )
-    
-    with st.expander("ℹ️ CSV Import Formatting Guide"):
-        st.markdown("""
-        To import transactions using a custom CSV file, ensure your file contains headers that the app can auto-detect. 
-        
-        ### Required Columns (Auto-Detected Headers):
-        1. **Date**: Column header containing `Date` (e.g. *Transaction Date*, *Posting Date*).
-        2. **Description**: Column header containing `Description`, `Memo`, `Detail`, `Particulars`, or `Name`.
-        3. **Amount** (choose **one** of these options):
-           * **Single Column**: Named `Amount` or `Value` (negative numbers for expenses/withdrawals, positive for deposits/revenue).
-           * **Two Columns**: Named `Debit` (or *Withdrawal*) and `Credit` (or *Deposit*).
-        
-        ### Optional Columns:
-        * **Balance**: Column header containing `Balance` to track the running account totals.
-        * **Category**: Column header containing `Category`, `Type`, or `Account` to pre-assign ledger categorizations.
-        
-        ### Sample CSV Structure:
-        """)
-        sample_df = pd.DataFrame([
-            {"Date": "2026-07-21", "Description": "Rogers Wireless", "Amount": -112.50, "Category": "Telephone Expense", "Balance": 1450.20},
-            {"Date": "2026-07-21", "Description": "Client Deposit", "Amount": 2500.00, "Category": "Professional Fees", "Balance": 3950.20}
-        ])
-        st.dataframe(sample_df, use_container_width=True, hide_index=True)
+    # ── Import Method Tabs ────────────────────────────────────────────────
+    file_tab, gsheet_tab = st.tabs(["📎 Upload File (PDF / CSV / Excel)", "🔗 Import from Google Sheets"])
 
-    if uploaded_file is not None:
-        file_bytes = uploaded_file.read()
-        file_type = uploaded_file.name.split(".")[-1].lower()
-        
-        st.write("")
-        ingest_btn = st.button("🚀 Ingest & Extract Transactions", type="primary", use_container_width=True)
-        
-        if ingest_btn:
-            with st.spinner("Extracting transactional tables and applying cleaning logic..."):
-                try:
-                    if file_type == "csv":
-                        raw_txs = parse_csv_statement(file_bytes)
-                    else:
-                        raw_txs = parse_pdf_statement(file_bytes)
-                        
-                    if not raw_txs:
-                        st.error("Failed to extract any transactions. Verify that the file contains digital text tables.")
-                    else:
-                        st.session_state["parsed_tx_batch"] = raw_txs
-                        st.session_state["active_import_client_id"] = client_id
-                        st.session_state["active_import_account_id"] = account_id
-                        st.success(f"Successfully extracted {len(raw_txs)} transactions from statement file!")
-                except Exception as e:
-                    st.error(f"Extraction Pipeline failed: {e}")
+    # ── Tab 1: File Upload ────────────────────────────────────────────────
+    with file_tab:
+        uploaded_file = st.file_uploader(
+            "Drag & Drop Statement File (PDF, CSV, or Excel)",
+            type=["pdf", "csv", "xlsx"],
+            help="Supports PDF bank statements and CSV/Excel exports (including Google Sheets downloaded as Excel)."
+        )
+
+        with st.expander("ℹ️ CSV / Excel Import Formatting Guide"):
+            st.markdown("""
+            Ensure your file has headers the app can auto-detect.
+
+            ### Required Columns:
+            1. **Date** — any header containing `Date`.
+            2. **Description** — any header containing `Description`, `Memo`, `Detail`, `Particulars`, or `Name`.
+            3. **Amount** — either:
+               - Single column named `Amount` or `Value` (negative = withdrawal, positive = deposit).
+               - Two columns named `Debit` / `Withdrawal` and `Credit` / `Deposit`.
+
+            ### Optional Columns:
+            - **Balance** — running account balance.
+            - **Category** — pre-assigned ledger category (honoured as-is on import).
+            """)
+            sample_df = pd.DataFrame([
+                {"Date": "2026-07-21", "Description": "Rogers Wireless", "Amount": -112.50, "Category": "Telephone Expense", "Balance": 1450.20},
+                {"Date": "2026-07-21", "Description": "Client Deposit",  "Amount": 2500.00, "Category": "Professional Fees",  "Balance": 3950.20},
+            ])
+            st.dataframe(sample_df, use_container_width=True, hide_index=True)
+
+        if uploaded_file is not None:
+            file_bytes = uploaded_file.read()
+            file_type = uploaded_file.name.split(".")[-1].lower()
+
+            st.write("")
+            ingest_btn = st.button("🚀 Ingest & Extract Transactions", type="primary", use_container_width=True, key="file_ingest_btn")
+
+            if ingest_btn:
+                with st.spinner("Extracting transactional tables and applying cleaning logic..."):
+                    try:
+                        if file_type == "csv":
+                            raw_txs = parse_csv_statement(file_bytes)
+                        elif file_type == "xlsx":
+                            raw_txs = parse_xlsx_statement(file_bytes)
+                        else:
+                            raw_txs = parse_pdf_statement(file_bytes)
+
+                        if not raw_txs:
+                            st.error("Failed to extract any transactions. Verify that the file contains digital text tables.")
+                        else:
+                            st.session_state["parsed_tx_batch"] = raw_txs
+                            st.session_state["active_import_client_id"] = client_id
+                            st.session_state["active_import_account_id"] = account_id
+                            st.success(f"Successfully extracted {len(raw_txs)} transactions from file!")
+                    except Exception as e:
+                        st.error(f"Extraction Pipeline failed: {e}")
+
+    # ── Tab 2: Google Sheets URL ──────────────────────────────────────────
+    with gsheet_tab:
+        if not google_credentials_configured():
+            st.warning("Google Sheets is not configured. Add `[google_service_account]` to Streamlit secrets.")
+        else:
+            st.markdown("Paste the URL of your Google Sheet. The service account must have **Viewer** access to the spreadsheet.")
+            sheet_url = st.text_input(
+                "Google Sheets URL",
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                key="gsheet_import_url"
+            )
+
+            if sheet_url:
+                load_btn = st.button("📋 Load Worksheets", key="gsheet_load_btn")
+                if load_btn:
+                    with st.spinner("Connecting to Google Sheets..."):
+                        try:
+                            import gspread
+                            from services.google_sheets_service import _google_credentials
+                            scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly",
+                                      "https://www.googleapis.com/auth/drive.readonly"]
+                            creds = _google_credentials(scopes)
+                            gc = gspread.authorize(creds)
+                            sh = gc.open_by_url(sheet_url)
+                            ws_names = [ws.title for ws in sh.worksheets()]
+                            st.session_state["gsheet_ws_names"] = ws_names
+                            st.session_state["gsheet_loaded_url"] = sheet_url
+                        except Exception as e:
+                            st.error(f"Could not open spreadsheet: {e}")
+
+                if "gsheet_ws_names" in st.session_state and st.session_state.get("gsheet_loaded_url") == sheet_url:
+                    ws_names = st.session_state["gsheet_ws_names"]
+                    selected_ws = st.selectbox("Select Worksheet (Tab) to Import", ws_names, key="gsheet_ws_select")
+
+                    st.info(f"📄 Will import transactions from the **{selected_ws}** tab. Columns expected: Date, Description, Amount, Category.")
+
+                    gs_ingest_btn = st.button("🚀 Import from Google Sheets", type="primary", use_container_width=True, key="gsheet_ingest_btn")
+                    if gs_ingest_btn:
+                        with st.spinner(f"Reading '{selected_ws}' from Google Sheets..."):
+                            try:
+                                import gspread, io, csv as _csv
+                                from services.google_sheets_service import _google_credentials
+                                scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly",
+                                          "https://www.googleapis.com/auth/drive.readonly"]
+                                creds = _google_credentials(scopes)
+                                gc = gspread.authorize(creds)
+                                sh = gc.open_by_url(sheet_url)
+                                ws = sh.worksheet(selected_ws)
+                                rows = ws.get_all_values()
+                                if not rows:
+                                    st.error("The selected worksheet is empty.")
+                                else:
+                                    buf = io.StringIO()
+                                    _csv.writer(buf).writerows(rows)
+                                    raw_txs = parse_csv_statement(buf.getvalue().encode("utf-8"))
+                                    if not raw_txs:
+                                        st.error("Could not detect transactions. Check that the sheet has Date, Description, and Amount columns.")
+                                    else:
+                                        st.session_state["parsed_tx_batch"] = raw_txs
+                                        st.session_state["active_import_client_id"] = client_id
+                                        st.session_state["active_import_account_id"] = account_id
+                                        st.success(f"✅ Loaded {len(raw_txs)} transactions from **{selected_ws}**. Scroll down to review and post.")
+                            except Exception as e:
+                                st.error(f"Google Sheets import failed: {e}")
                     
     # Render Review spreadsheet if batch exists in state
     if "parsed_tx_batch" in st.session_state and st.session_state.get("active_import_client_id") == client_id:
