@@ -158,7 +158,35 @@ def render_statement_import(db):
                     else:
                         st.info(f"📄 Will import rows **{int(from_row)}** → **{int(to_row)}** from the **{selected_ws}** tab ({int(to_row - from_row + 1)} rows).")
 
-                        gs_ingest_btn = st.button("🚀 Import from Google Sheets", type="primary", use_container_width=True, key="gsheet_ingest_btn")
+                        # ── Destination confirmation ──────────────────────────────
+                        selected_account_label = acc_label  # from the bank ledger selectbox above
+                        st.markdown("---")
+                        st.markdown("### ⚠️ Confirm Import Destination")
+                        st.markdown(
+                            f"""
+                            | | |
+                            |---|---|
+                            | 🏢 **Client** | {client_name} |
+                            | 🏦 **Bank Ledger** | {selected_account_label} |
+                            | 📋 **Worksheet Tab** | {selected_ws} |
+                            | 📄 **Rows** | {int(from_row)} → {int(to_row)} |
+                            """,
+                            unsafe_allow_html=False
+                        )
+                        confirmed = st.checkbox(
+                            f"✅ Yes, I confirm — import into **{client_name}** / **{selected_account_label}**",
+                            key="gsheet_confirm_checkbox"
+                        )
+                        st.markdown("---")
+
+                        gs_ingest_btn = st.button(
+                            "🚀 Import from Google Sheets",
+                            type="primary",
+                            use_container_width=True,
+                            key="gsheet_ingest_btn",
+                            disabled=not confirmed
+                        )
+
                         if gs_ingest_btn:
                             with st.spinner(f"Reading rows {int(from_row)}–{int(to_row)} from '{selected_ws}'..."):
                                 try:
