@@ -1,5 +1,5 @@
 @echo off
-cd /d "C:\Users\admin\.gemini\antigravity\scratch\canadian_accounting_system"
+cd /d "C:\Users\admin\Antigravity projects\canadian_accounting_system"
 if not exist ".venv" (
     echo [System] Creating virtual environment...
     python -m venv .venv
