@@ -9,5 +9,6 @@ call .venv\Scripts\activate.bat
 echo [System] Checking dependencies...
 pip install -r requirements.txt
 echo [System] Starting Maple Ledger AI...
+set USE_LOCAL_SQLITE=1
 streamlit run app.py
 pause

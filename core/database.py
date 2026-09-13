@@ -3,8 +3,9 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Database URL - defaults to local SQLite, but can be overridden by secrets or environment variables
-USE_LOCAL = os.getenv("USE_LOCAL_SQLITE", "1") == "1"
+# Database URL - check env var first, then Streamlit secrets, then fall back to SQLite.
+# USE_LOCAL_SQLITE=1 forces SQLite even if a DATABASE_URL exists (for local dev).
+USE_LOCAL = os.getenv("USE_LOCAL_SQLITE", "0") == "1"
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL and not USE_LOCAL:
     try:
