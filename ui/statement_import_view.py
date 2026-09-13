@@ -417,7 +417,7 @@ def render_statement_import(db):
     st.write("")
     with st.expander("🕓 Import History — Undo a Previous Import", expanded=False):
         from sqlalchemy import text as _text
-        from core.models import Transaction as _Tx, GeneralLedgerEntry
+        from core.models import Transaction as _Tx, JournalEntry as _JE
 
         try:
             # Fetch distinct batches for this client, most recent first
@@ -443,12 +443,12 @@ def render_statement_import(db):
             else:
                 st.markdown("Select a batch below and click **🗑️ Delete This Import** to remove only those transactions.")
                 for b in batch_rows:
-                    bid       = b[0]
-                    date_from = str(b[1])[:10] if b[1] else "?"
-                    date_to   = str(b[2])[:10] if b[2] else "?"
-                    tx_count  = b[3]
+                    bid         = b[0]
+                    date_from   = str(b[1])[:10] if b[1] else "?"
+                    date_to     = str(b[2])[:10] if b[2] else "?"
+                    tx_count    = b[3]
                     imported_at = str(b[4])[:16] if b[4] else "?"
-                    short_id  = bid[:8]
+                    short_id    = bid[:8]
 
                     col_info, col_btn = st.columns([4, 1])
                     with col_info:
@@ -461,16 +461,17 @@ def render_statement_import(db):
                     with col_btn:
                         if st.button("🗑️ Delete", key=f"del_batch_{bid}", type="secondary"):
                             try:
-                                # Delete GL entries first (FK constraint)
                                 txs_to_del = db.query(_Tx).filter(
                                     _Tx.import_batch_id == bid,
                                     _Tx.client_id == client_id
                                 ).all()
                                 tx_ids = [t.id for t in txs_to_del]
                                 if tx_ids:
-                                    db.query(GeneralLedgerEntry).filter(
-                                        GeneralLedgerEntry.transaction_id.in_(tx_ids)
+                                    # Delete journal entries (cascade removes journal lines)
+                                    db.query(_JE).filter(
+                                        _JE.transaction_id.in_(tx_ids)
                                     ).delete(synchronize_session=False)
+                                    # Delete transactions
                                     db.query(_Tx).filter(
                                         _Tx.import_batch_id == bid,
                                         _Tx.client_id == client_id
