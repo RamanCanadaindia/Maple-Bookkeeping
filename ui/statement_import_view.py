@@ -145,31 +145,24 @@ def render_statement_import(db):
                     ws_names = st.session_state["gsheet_ws_names"]
                     selected_ws = st.selectbox("Select Worksheet (Tab) to Import", ws_names, key="gsheet_ws_select")
 
-                    # Date range filter
-                    st.markdown("**Filter by Date Range** — only rows within this range will be imported:")
-                    dcol1, dcol2 = st.columns(2)
-                    with dcol1:
-                        from_date = st.date_input("From Date", key="gsheet_from_date", value=None)
-                    with dcol2:
-                        to_date = st.date_input("To Date", key="gsheet_to_date", value=None)
+                    # Row range filter (matches Google Sheet row numbers; row 1 = header)
+                    st.markdown("**Select Row Range** — enter the Google Sheet row numbers to import (row 1 is the header):")
+                    rcol1, rcol2 = st.columns(2)
+                    with rcol1:
+                        from_row = st.number_input("From Row", min_value=2, value=2, step=1, key="gsheet_from_row")
+                    with rcol2:
+                        to_row = st.number_input("To Row", min_value=2, value=100, step=1, key="gsheet_to_row")
 
-                    if from_date and to_date and from_date > to_date:
-                        st.warning("⚠️ From Date must be before To Date.")
+                    if from_row > to_row:
+                        st.warning("⚠️ From Row must be less than or equal to To Row.")
                     else:
-                        if from_date or to_date:
-                            range_label = f"from **{from_date}**" if from_date and not to_date else \
-                                          f"up to **{to_date}**" if to_date and not from_date else \
-                                          f"**{from_date}** → **{to_date}**"
-                            st.info(f"📄 Will import rows {range_label} from the **{selected_ws}** tab.")
-                        else:
-                            st.info(f"📄 Will import **all rows** from the **{selected_ws}** tab. Set a date range above to import only new transactions.")
+                        st.info(f"📄 Will import rows **{int(from_row)}** → **{int(to_row)}** from the **{selected_ws}** tab ({int(to_row - from_row + 1)} rows).")
 
                         gs_ingest_btn = st.button("🚀 Import from Google Sheets", type="primary", use_container_width=True, key="gsheet_ingest_btn")
                         if gs_ingest_btn:
-                            with st.spinner(f"Reading '{selected_ws}' from Google Sheets..."):
+                            with st.spinner(f"Reading rows {int(from_row)}–{int(to_row)} from '{selected_ws}'..."):
                                 try:
                                     import gspread, io, csv as _csv
-                                    from datetime import date as _date
                                     from services.google_sheets_service import _google_credentials
                                     scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly",
                                               "https://www.googleapis.com/auth/drive.readonly"]
@@ -177,61 +170,27 @@ def render_statement_import(db):
                                     gc = gspread.authorize(creds)
                                     sh = gc.open_by_url(sheet_url)
                                     ws = sh.worksheet(selected_ws)
-                                    rows = ws.get_all_values()
-                                    if not rows:
+                                    all_sheet_rows = ws.get_all_values()
+                                    if not all_sheet_rows:
                                         st.error("The selected worksheet is empty.")
                                     else:
-                                        header = rows[0]
-                                        data_rows = rows[1:]
-
-                                        # Find the date column index
-                                        date_col_idx = next(
-                                            (i for i, h in enumerate(header) if "date" in h.lower()), None
-                                        )
-
-                                        # Apply date range filter if dates provided
-                                        if (from_date or to_date) and date_col_idx is not None:
-                                            filtered_rows = []
-                                            skipped = 0
-                                            for r in data_rows:
-                                                cell = r[date_col_idx].strip() if date_col_idx < len(r) else ""
-                                                try:
-                                                    # Try common formats — prioritise DD-Mon-YYYY (e.g. 11-Sep-2026, 2-Feb-2026)
-                                                    _DATE_FMTS = ["%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
-                                                    parsed = None
-                                                    for _fmt in _DATE_FMTS:
-                                                        try:
-                                                            from datetime import datetime as _dt
-                                                            parsed = _dt.strptime(cell, _fmt).date()
-                                                            break
-                                                        except ValueError:
-                                                            continue
-                                                    if parsed is None:
-                                                        parsed = pd.to_datetime(cell, dayfirst=True).date()
-                                                    if from_date and parsed < from_date:
-                                                        skipped += 1
-                                                        continue
-                                                    if to_date and parsed > to_date:
-                                                        skipped += 1
-                                                        continue
-                                                    filtered_rows.append(r)
-                                                except Exception:
-                                                    filtered_rows.append(r)  # keep unparseable rows
-                                            data_rows = filtered_rows
-                                            if skipped:
-                                                st.caption(f"ℹ️ {skipped} rows outside the date range were excluded.")
-
-                                        all_rows = [header] + data_rows
-                                        buf = io.StringIO()
-                                        _csv.writer(buf).writerows(all_rows)
-                                        raw_txs = parse_csv_statement(buf.getvalue().encode("utf-8"))
-                                        if not raw_txs:
-                                            st.error("Could not detect transactions. Check that the sheet has Date, Description, and Amount columns.")
+                                        header = all_sheet_rows[0]  # row 1 = header
+                                        # Sheet rows are 1-indexed; data starts at row 2 (index 1)
+                                        # Slice: from_row-1 to to_row (both inclusive, 0-indexed)
+                                        selected_data = all_sheet_rows[int(from_row) - 1 : int(to_row)]
+                                        if not selected_data:
+                                            st.error(f"No data found between rows {int(from_row)} and {int(to_row)}.")
                                         else:
-                                            st.session_state["parsed_tx_batch"] = raw_txs
-                                            st.session_state["active_import_client_id"] = client_id
-                                            st.session_state["active_import_account_id"] = account_id
-                                            st.success(f"✅ Loaded {len(raw_txs)} transactions from **{selected_ws}**. Scroll down to review and post.")
+                                            buf = io.StringIO()
+                                            _csv.writer(buf).writerows([header] + selected_data)
+                                            raw_txs = parse_csv_statement(buf.getvalue().encode("utf-8"))
+                                            if not raw_txs:
+                                                st.error("Could not detect transactions. Check that the sheet has Date, Description, and Amount columns.")
+                                            else:
+                                                st.session_state["parsed_tx_batch"] = raw_txs
+                                                st.session_state["active_import_client_id"] = client_id
+                                                st.session_state["active_import_account_id"] = account_id
+                                                st.success(f"✅ Loaded {len(raw_txs)} transactions from rows {int(from_row)}–{int(to_row)} of **{selected_ws}**. Scroll down to review and post.")
                                 except Exception as e:
                                     st.error(f"Google Sheets import failed: {e}")
 
