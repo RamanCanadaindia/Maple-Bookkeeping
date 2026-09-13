@@ -193,6 +193,18 @@ def check_and_update_schema(db_engine):
         except Exception as e:
             print(f"[Schema Update Error] Could not create learned_mappings table: {e}")
 
+    # Add import_batch_id to transactions if missing
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("SELECT import_batch_id FROM transactions LIMIT 1"))
+    except Exception:
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN import_batch_id VARCHAR NULL"))
+            print("[Schema Update] Added import_batch_id column to transactions table.")
+        except Exception as e:
+            print(f"[Schema Update Error] Could not add import_batch_id: {e}")
+
 # Run schema update on import
 check_and_update_schema(engine)
 

@@ -117,6 +117,7 @@ class Transaction(Base):
     receipt_status = Column(String, default="Unmatched")
     
     statement_period = Column(String, nullable=True) # e.g. "2026-06"
+    import_batch_id = Column(String, nullable=True, index=True)  # UUID per import run — used for undo
     created_at = Column(DateTime, default=datetime.utcnow)
 
     @property

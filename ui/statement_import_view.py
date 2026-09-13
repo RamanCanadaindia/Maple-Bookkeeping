@@ -329,6 +329,8 @@ def render_statement_import(db):
         post_btn = st.button("💾 Post Verified Transactions to Ledger", type="primary", use_container_width=True)
         
         if post_btn:
+            import uuid
+            batch_id = str(uuid.uuid4())  # Unique ID for this entire import run
             # Map skip selections back
             posted_count = 0
             skipped_count = 0
@@ -363,7 +365,8 @@ def render_statement_import(db):
                     is_transfer=orig_tx.get("is_transfer", False),
                     transfer_linked_acc=orig_tx.get("transfer_linked_acc", None),
                     confidence=float(row.get("Confidence", 0.0)),
-                    review_required=bool(row.get("Review Required", False))
+                    review_required=bool(row.get("Review Required", False)),
+                    import_batch_id=batch_id
                 )
                 db.add(db_tx)
                 # Category edits in the review grid are explicit confirmations and
@@ -402,10 +405,83 @@ def render_statement_import(db):
                 action_type="Import Bank Statement",
                 client_id=client_id,
                 client_name=client.business_name,
-                details=f"General Ledger Post: {posted_count} entered | {skipped_count} duplicates skipped."
+                details=f"General Ledger Post: {posted_count} entered | {skipped_count} duplicates skipped. Batch ID: {batch_id}"
             )
             
             # Clear state batch after successful GL post
             del st.session_state["parsed_tx_batch"]
             st.success(f"Successfully posted {posted_count} transaction lines to General Ledger! {skipped_count} lines skipped.")
             st.rerun()
+
+    # ── Import History (Undo Panel) ──────────────────────────────────────
+    st.write("")
+    with st.expander("🕓 Import History — Undo a Previous Import", expanded=False):
+        from sqlalchemy import text as _text
+        from core.models import Transaction as _Tx, GeneralLedgerEntry
+
+        try:
+            # Fetch distinct batches for this client, most recent first
+            batch_rows = db.execute(
+                _text("""
+                    SELECT import_batch_id,
+                           MIN(date)      AS earliest_date,
+                           MAX(date)      AS latest_date,
+                           COUNT(*)       AS tx_count,
+                           MAX(created_at) AS imported_at
+                    FROM transactions
+                    WHERE client_id = :cid
+                      AND import_batch_id IS NOT NULL
+                    GROUP BY import_batch_id
+                    ORDER BY imported_at DESC
+                    LIMIT 10
+                """),
+                {"cid": client_id}
+            ).fetchall()
+
+            if not batch_rows:
+                st.info("No import batches found for this client yet.")
+            else:
+                st.markdown("Select a batch below and click **🗑️ Delete This Import** to remove only those transactions.")
+                for b in batch_rows:
+                    bid       = b[0]
+                    date_from = str(b[1])[:10] if b[1] else "?"
+                    date_to   = str(b[2])[:10] if b[2] else "?"
+                    tx_count  = b[3]
+                    imported_at = str(b[4])[:16] if b[4] else "?"
+                    short_id  = bid[:8]
+
+                    col_info, col_btn = st.columns([4, 1])
+                    with col_info:
+                        st.markdown(
+                            f"**Batch `{short_id}...`** — "
+                            f"{tx_count} transactions — "
+                            f"dates {date_from} → {date_to} — "
+                            f"imported {imported_at}"
+                        )
+                    with col_btn:
+                        if st.button("🗑️ Delete", key=f"del_batch_{bid}", type="secondary"):
+                            try:
+                                # Delete GL entries first (FK constraint)
+                                txs_to_del = db.query(_Tx).filter(
+                                    _Tx.import_batch_id == bid,
+                                    _Tx.client_id == client_id
+                                ).all()
+                                tx_ids = [t.id for t in txs_to_del]
+                                if tx_ids:
+                                    db.query(GeneralLedgerEntry).filter(
+                                        GeneralLedgerEntry.transaction_id.in_(tx_ids)
+                                    ).delete(synchronize_session=False)
+                                    db.query(_Tx).filter(
+                                        _Tx.import_batch_id == bid,
+                                        _Tx.client_id == client_id
+                                    ).delete(synchronize_session=False)
+                                    db.commit()
+                                    st.success(f"✅ Deleted {len(tx_ids)} transactions from batch `{short_id}...`")
+                                    st.rerun()
+                                else:
+                                    st.warning("No transactions found for this batch.")
+                            except Exception as del_err:
+                                db.rollback()
+                                st.error(f"Delete failed: {del_err}")
+        except Exception as hist_err:
+            st.warning(f"Could not load import history: {hist_err}")
