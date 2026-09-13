@@ -196,7 +196,18 @@ def render_statement_import(db):
                                             for r in data_rows:
                                                 cell = r[date_col_idx].strip() if date_col_idx < len(r) else ""
                                                 try:
-                                                    parsed = pd.to_datetime(cell, dayfirst=True).date()
+                                                    # Try common formats — prioritise DD-Mon-YYYY (e.g. 11-Sep-2026, 2-Feb-2026)
+                                                    _DATE_FMTS = ["%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+                                                    parsed = None
+                                                    for _fmt in _DATE_FMTS:
+                                                        try:
+                                                            from datetime import datetime as _dt
+                                                            parsed = _dt.strptime(cell, _fmt).date()
+                                                            break
+                                                        except ValueError:
+                                                            continue
+                                                    if parsed is None:
+                                                        parsed = pd.to_datetime(cell, dayfirst=True).date()
                                                     if from_date and parsed < from_date:
                                                         skipped += 1
                                                         continue
