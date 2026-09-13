@@ -1252,10 +1252,10 @@ def render_ledger_editor(db):
                                 st.toast(f"Deleted rule '{selected_del_kw}' successfully!", icon="🗑️")
                                 st.rerun()
 
-            st.write("DEBUG: Reached line 1167 in ledger view")
             st.markdown("#### 📁 Custom Category Manager")
-            st.caption("Create client-specific accounts for transaction classification and keyword rules.")
+            st.caption("Create, rename, or delete client-specific categories for transaction classification and rules.")
 
+            # --- Create Custom Category ---
             new_custom_category = st.text_input(
                 "New category name",
                 placeholder="e.g. Software Subscriptions",
@@ -1273,9 +1273,94 @@ def render_ledger_editor(db):
                     st.success(f"Created custom category '{category_name}'.")
                     st.rerun()
 
+            # --- Rename Category Globally ---
+            all_client_cats = sorted(list(set(
+                [c.name for c in custom_categories] +
+                [t.category for t in txs if t.category]
+            )))
+            if all_client_cats:
+                st.markdown("---")
+                st.markdown("##### ✏️ Rename an Existing Category")
+                st.caption("Renames the category across all posted transactions, general ledger entries, and custom categories for this client.")
+                ren_col1, ren_col2, ren_btn_col = st.columns([2, 2, 1])
+                with ren_col1:
+                    cat_to_rename = st.selectbox(
+                        "Category to rename",
+                        all_client_cats,
+                        key="rename_cat_source_select"
+                    )
+                with ren_col2:
+                    renamed_name = st.text_input(
+                        "New category name",
+                        placeholder="Enter updated name",
+                        key="rename_cat_target_input"
+                    )
+                with ren_btn_col:
+                    st.write("")
+                    if st.button("✏️ Rename", type="primary", use_container_width=True, key="rename_cat_submit_btn"):
+                        clean_target = renamed_name.strip()
+                        if not clean_target:
+                            st.error("Please enter a new category name.")
+                        elif clean_target.casefold() == cat_to_rename.casefold():
+                            st.warning("The new name is the same as the current name.")
+                        else:
+                            try:
+                                # 1. Update CustomCategory if present
+                                cc_records = db.query(CustomCategory).filter(
+                                    CustomCategory.client_id == client_id,
+                                    CustomCategory.name == cat_to_rename
+                                ).all()
+                                for cc in cc_records:
+                                    cc.name = clean_target
+
+                                # If target name is not standard and not in CustomCategory, add it
+                                if clean_target not in VALID_CATEGORIES:
+                                    exists = db.query(CustomCategory).filter(
+                                        CustomCategory.client_id == client_id,
+                                        CustomCategory.name == clean_target
+                                    ).first()
+                                    if not exists:
+                                        db.add(CustomCategory(client_id=client_id, name=clean_target))
+
+                                # 2. Update all matching Transactions for this client
+                                tx_count = db.query(Transaction).filter(
+                                    Transaction.client_id == client_id,
+                                    Transaction.category == cat_to_rename
+                                ).update({"category": clean_target}, synchronize_session=False)
+
+                                # 3. Update Journal Lines for this client
+                                from core.models import JournalEntry, JournalLine
+                                je_ids = [j.id for j in db.query(JournalEntry.id).filter(JournalEntry.client_id == client_id).all()]
+                                if je_ids:
+                                    db.query(JournalLine).filter(
+                                        JournalLine.journal_entry_id.in_(je_ids),
+                                        JournalLine.account_name == cat_to_rename
+                                    ).update({"account_name": clean_target}, synchronize_session=False)
+
+                                # 4. Update Category Rules & Learned Mappings
+                                from core.models import CategoryRule, LearnedMapping
+                                db.query(CategoryRule).filter(
+                                    CategoryRule.client_id == client_id,
+                                    CategoryRule.category == cat_to_rename
+                                ).update({"category": clean_target}, synchronize_session=False)
+
+                                db.query(LearnedMapping).filter(
+                                    LearnedMapping.client_id == client_id,
+                                    LearnedMapping.category == cat_to_rename
+                                ).update({"category": clean_target}, synchronize_session=False)
+
+                                db.commit()
+                                st.success(f"✅ Successfully renamed '{cat_to_rename}' to '{clean_target}' across {tx_count} transactions!")
+                                st.rerun()
+                            except Exception as e:
+                                db.rollback()
+                                st.error(f"Failed to rename category: {e}")
+
+            st.markdown("---")
             if not custom_categories:
                 st.info("No custom categories have been created for this client yet.")
             else:
+                st.markdown("##### 📋 Registered Custom Categories")
                 custom_category_rows = pd.DataFrame([
                     {"ID": category.id, "Category": category.name}
                     for category in custom_categories
