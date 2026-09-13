@@ -58,9 +58,33 @@ def render_reports(db):
     
     with tab_pl:
         st.subheader("Income Statement (Profit & Loss)")
-        st.markdown(f"**Period:** Fiscal Year End: *{client.fiscal_year_end}* | **Basis:** *{client.accounting_method}*")
         
-        pl = compile_income_statement(db, client_id)
+        # Period & Date Range Filter Bar
+        col_p1, col_p2, col_p3 = st.columns([2, 2, 3])
+        with col_p1:
+            period_mode = st.selectbox(
+                "📅 Report Period",
+                ["Full History / All Time", "Custom Date Range"],
+                key="pl_report_period_mode"
+            )
+            
+        start_date_filter = None
+        end_date_filter = None
+        if period_mode == "Custom Date Range":
+            with col_p2:
+                custom_start = st.date_input("Start Date", key="pl_custom_start_date")
+                start_date_filter = datetime.combine(custom_start, datetime.min.time())
+            with col_p3:
+                custom_end = st.date_input("End Date", key="pl_custom_end_date")
+                end_date_filter = datetime.combine(custom_end, datetime.max.time())
+        else:
+            with col_p2:
+                st.markdown(f"**Fiscal Year End:** *{client.fiscal_year_end}*")
+            with col_p3:
+                st.markdown(f"**Accounting Basis:** *{client.accounting_method}*")
+                
+        pl = compile_income_statement(db, client_id, start_date=start_date_filter, end_date=end_date_filter)
+        account_items_map = pl.get("Account_Items", {})
         
         # Display margins cards using color-blind-safe premium HTML layout
         col_c1, col_c2, col_c3 = st.columns(3)
@@ -73,27 +97,174 @@ def render_reports(db):
         
         st.markdown("---")
         
+        from services.drilldown_service import calculate_account_total, reconcile_account
+        
+        all_rev_accounts = list(pl["Revenues"].keys())
+        all_exp_accounts = list(pl["Expenses"].keys())
+        all_accounts_list = all_rev_accounts + all_exp_accounts
+        
+        # --- PROMINENT TRANSACTION INSPECTOR CONTROLS ---
+        col_ctrl1, col_ctrl2 = st.columns([3, 1])
+        with col_ctrl1:
+            inspect_default = st.session_state.get("pl_inspected_account", "-- Select an Account to View Transactions --")
+            if inspect_default not in ["-- Select an Account to View Transactions --"] + all_accounts_list:
+                inspect_default = "-- Select an Account to View Transactions --"
+                
+            selected_inspect_acc = st.selectbox(
+                "🔍 **Instant Account Inspector (Select to View Transactions Directly):**",
+                ["-- Select an Account to View Transactions --"] + all_accounts_list,
+                index=(["-- Select an Account to View Transactions --"] + all_accounts_list).index(inspect_default),
+                key="pl_account_inspector_select"
+            )
+            if selected_inspect_acc != "-- Select an Account to View Transactions --":
+                st.session_state["pl_inspected_account"] = selected_inspect_acc
+        with col_ctrl2:
+            st.write("")
+            expand_all_toggle = st.checkbox("📂 **Expand All Drill-Downs**", value=False, key="pl_expand_all_toggle")
+            
+        # If an account is selected in the Instant Inspector, render its full transaction table immediately
+        if selected_inspect_acc and selected_inspect_acc != "-- Select an Account to View Transactions --":
+            is_acc_rev = selected_inspect_acc in pl["Revenues"]
+            acc_stmt_amt = pl["Revenues"].get(selected_inspect_acc, pl["Expenses"].get(selected_inspect_acc, 0.0))
+            raw_acc_items = account_items_map.get(selected_inspect_acc, [])
+            acc_dd_amt = calculate_account_total(raw_acc_items, is_revenue=is_acc_rev)
+            acc_recon = reconcile_account(acc_stmt_amt, acc_dd_amt)
+            
+            st.markdown(
+                f"""
+                <div style="background-color:#eff6ff; border:1px solid #93c5fd; border-radius:8px; padding:1rem 1.25rem; margin:1rem 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h4 style="margin:0; color:#1e3a8a;">🔍 Inspecting Account: <b>{selected_inspect_acc}</b> ({len(raw_acc_items)} Transactions)</h4>
+                        <span style="font-weight:700; color:#1e40af; font-size:1.1rem;">Statement Balance: ${acc_stmt_amt:,.2f}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            if not raw_acc_items:
+                st.info(f"No transactions found for account '{selected_inspect_acc}'.")
+            else:
+                insp_tbl_data = []
+                for it in raw_acc_items:
+                    dt_str = it["date"].strftime("%Y-%m-%d") if isinstance(it["date"], datetime) else str(it["date"])
+                    insp_tbl_data.append({
+                        "Date": dt_str,
+                        "Vendor / Payee": it["vendor"],
+                        "Description / Memo": it["description"],
+                        "Debit": f"${it['debit']:,.2f}" if it['debit'] > 0 else "-",
+                        "Credit": f"${it['credit']:,.2f}" if it['credit'] > 0 else "-",
+                        "Net ($ CAD)": f"${it['net_amount']:,.2f}",
+                        "GST ($)": f"${it['gst_amount']:,.2f}" if it['gst_amount'] > 0 else "-",
+                        "ITC ($)": f"${it['itc_amount']:,.2f}" if (not is_acc_rev and it['itc_amount'] > 0) else "-",
+                        "Source": it["source"],
+                        "Bank Account": it["bank_account"],
+                        "Ref #": str(it["reference"]),
+                        "Tx ID": str(it["tx_id"]) if it["tx_id"] is not None else "-"
+                    })
+                st.dataframe(pd.DataFrame(insp_tbl_data), use_container_width=True, hide_index=True)
+                
+                col_ir1, col_ir2, col_ir3, col_ir4 = st.columns(4)
+                with col_ir1:
+                    st.metric("Statement Total", f"${acc_recon['statement_total']:,.2f}")
+                with col_ir2:
+                    st.metric("Drill-Down Total", f"${acc_recon['drilldown_total']:,.2f}")
+                with col_ir3:
+                    st.metric("Reconciliation Difference", f"${acc_recon['difference']:,.2f}")
+                with col_ir4:
+                    if acc_recon["is_reconciled"]:
+                        st.success(f"**Status:** {acc_recon['status']}")
+                    else:
+                        st.error(f"**Status:** ⚠️ {acc_recon['status']}")
+            st.markdown("---")
+            
+        def render_drilldown_section(category_name: str, statement_amt: float, is_rev: bool = False):
+            raw_items = account_items_map.get(category_name, [])
+            drilldown_amt = calculate_account_total(raw_items, is_revenue=is_rev)
+            recon = reconcile_account(statement_amt, drilldown_amt)
+            status_icon = "✅" if recon["is_reconciled"] else "⚠️"
+            
+            is_expanded = expand_all_toggle or (st.session_state.get("pl_inspected_account") == category_name)
+            expander_title = f"{status_icon} **{category_name}** — `${statement_amt:,.2f}`  ({len(raw_items)} transaction{'s' if len(raw_items) != 1 else ''})"
+            with st.expander(expander_title, expanded=is_expanded):
+                if not raw_items:
+                    st.info(f"No transactions found for {category_name}.")
+                else:
+                    # Build clean detail table for drill-down
+                    tbl_data = []
+                    for it in raw_items:
+                        dt_str = it["date"].strftime("%Y-%m-%d") if isinstance(it["date"], datetime) else str(it["date"])
+                        deb_str = f"${it['debit']:,.2f}" if it['debit'] > 0 else "-"
+                        cred_str = f"${it['credit']:,.2f}" if it['credit'] > 0 else "-"
+                        gst_str = f"${it['gst_amount']:,.2f}" if it['gst_amount'] > 0 else "-"
+                        itc_str = f"${it['itc_amount']:,.2f}" if it['itc_amount'] > 0 else "-"
+                        
+                        row_entry = {
+                            "Date": dt_str,
+                            "Vendor / Payee": it["vendor"],
+                            "Description / Memo": it["description"],
+                            "Debit": deb_str,
+                            "Credit": cred_str,
+                            "Net ($ CAD)": f"${it['net_amount']:,.2f}",
+                            "GST ($)": gst_str,
+                        }
+                        if not is_rev:
+                            row_entry["ITC ($)"] = itc_str
+                        row_entry["Source"] = it["source"]
+                        row_entry["Bank Account"] = it["bank_account"]
+                        row_entry["Ref #"] = str(it["reference"])
+                        row_entry["Tx ID"] = str(it["tx_id"]) if it["tx_id"] is not None else "-"
+                        tbl_data.append(row_entry)
+                        
+                    st.dataframe(pd.DataFrame(tbl_data), use_container_width=True, hide_index=True)
+                    
+                # Summary and Reconciliation Comparison Block
+                st.markdown("##### 🔍 Reconciliation Summary")
+                col_rc1, col_rc2, col_rc3, col_rc4 = st.columns(4)
+                with col_rc1:
+                    st.metric("Financial Statement", f"${recon['statement_total']:,.2f}")
+                with col_rc2:
+                    st.metric("Drill-Down Total", f"${recon['drilldown_total']:,.2f}")
+                with col_rc3:
+                    st.metric("Difference", f"${recon['difference']:,.2f}")
+                with col_rc4:
+                    if recon["is_reconciled"]:
+                        st.success(f"**Status:** {recon['status']}")
+                    else:
+                        st.error(f"**Status:** ⚠️ {recon['status']}")
+                        
+                col_act1, col_act2 = st.columns([2, 3])
+                with col_act1:
+                    if st.button(f"📖 Filter in General Ledger", key=f"btn_gl_filter_{category_name}"):
+                        st.session_state["ledger_category_filter"] = category_name
+                        st.toast(f"Category filter set to '{category_name}'. Open the '📖 General Ledger' tab above.", icon="📌")
+                with col_act2:
+                    st.caption("Click to pre-set this category filter in the General Ledger browser.")
+        
         # Revenues detail
         st.markdown("### 📈 Operating Revenue")
         if not pl["Revenues"]:
             st.info("No recorded revenue items.")
         else:
-            rev_tbl = [{"Ledger Account": k, "Amount ($ CAD)": f"${v:,.2f}"} for k, v in pl["Revenues"].items()]
-            st.table(pd.DataFrame(rev_tbl))
-            st.markdown(f"**Total Revenue:** &nbsp;&nbsp;&nbsp;&nbsp; **`${pl['Total Revenue']:,.2f}`**")
+            for cat_name, amt in pl["Revenues"].items():
+                render_drilldown_section(cat_name, amt, is_rev=True)
+            st.markdown(f"**Total Operating Revenue:** &nbsp;&nbsp;&nbsp;&nbsp; **`${pl['Total Revenue']:,.2f}`**")
             
         st.write("")
+        st.markdown("---")
+        
         # Expenses detail
         st.markdown("### 📉 Operating Expenses")
         if not pl["Expenses"]:
             st.info("No recorded expense items.")
         else:
-            exp_tbl = [{"Ledger Account": k, "Amount ($ CAD)": f"${v:,.2f}"} for k, v in pl["Expenses"].items()]
-            st.table(pd.DataFrame(exp_tbl))
+            for cat_name, amt in pl["Expenses"].items():
+                render_drilldown_section(cat_name, amt, is_rev=False)
             st.markdown(f"**Total Operating Expenses:** &nbsp;&nbsp;&nbsp;&nbsp; **`${pl['Total Expenses']:,.2f}`**")
             
         # Export options
         st.write("")
+        st.markdown("---")
         st.markdown("#### 📥 Export Statement")
         col_ex_pl1, col_ex_pl2 = st.columns(2)
         with col_ex_pl1:
@@ -278,58 +449,185 @@ def render_reports(db):
                 )
             
     with tab_gst:
-        st.subheader("🍁 CRA GST/HST return calculations")
-        st.markdown(f"**Filing Period:** *{client.gst_period}* | **Accounting Mode:** *{client.gst_method}*")
+        st.subheader("🍁 CRA GST/HST Return Calculations (Form GST34)")
         
-        gst_ret = generate_gst_return_summary(db, client_id)
-        
-        if not gst_ret:
-            st.info("No sales transactions to compute GST return.")
-        else:
-            # Determine Line 109 color based on payable vs refund status
-            net_tax_color = "#E69F00" if gst_ret['net_tax_due_line109'] > 0 else "#0072B2"
-            
-            # Layout the CRA NETFILE values card
-            st.markdown(
-                f"""
-                <div style="background-color: #f7f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #d3dbde; max-width: 600px; margin: 1rem 0;">
-                    <h3 style="color:#1F3A5F; margin-top:0;">🍁 GST Return Summary (Form GST34)</h3>
-                    <table style="width:100%; border-collapse: collapse;">
-                        <tr style="border-bottom: 1px solid #ddd; height: 35px;">
-                            <td><b>Line 101:</b> Taxable Sales & Revenue</td>
-                            <td style="text-align:right;"><b>${gst_ret['gross_sales_revenue']:,.2f}</b></td>
-                        </tr>
-                        <tr style="border-bottom: 1px solid #ddd; height: 35px;">
-                            <td><b>Line 103:</b> GST/HST Collected or Payable</td>
-                            <td style="text-align:right; color:#1e3d59;">${gst_ret['gst_collected_line103']:,.2f}</td>
-                        </tr>
-                        <tr style="border-bottom: 1px solid #ddd; height: 35px;">
-                            <td><b>Line 105:</b> Adjustments (GST collected)</td>
-                            <td style="text-align:right;">$0.00</td>
-                        </tr>
-                        <tr style="border-bottom: 1px solid #ddd; height: 35px;">
-                            <td><b>Line 108:</b> Input Tax Credits (ITCs) Claimed</td>
-                            <td style="text-align:right; color:#0072B2;">${gst_ret['itcs_claimed_line108']:,.2f}</td>
-                        </tr>
-                        <tr style="height: 45px;">
-                            <td><b style="font-size:1.1rem; color:{net_tax_color};">Line 109: Net Tax Remittance / Refund</b></td>
-                            <td style="text-align:right;"><b style="font-size:1.1rem; color:{net_tax_color};">${gst_ret['net_tax_due_line109']:,.2f}</b></td>
-                        </tr>
-                    </table>
-                </div>
-                """,
-                unsafe_allow_html=True
+        # Period & Date Range Filter Bar for GST
+        col_gp1, col_gp2, col_gp3 = st.columns([2, 2, 3])
+        with col_gp1:
+            gst_period_mode = st.selectbox(
+                "📅 Filing Period Filter",
+                ["Full History / All Time", "Custom Date Range"],
+                key="gst_report_period_mode"
             )
             
-            # Print instruction based on return status
-            if gst_ret['net_tax_due_line109'] > 0:
-                st.warning(f"⚠️ Net Tax Due to CRA: **`${gst_ret['net_tax_due_line109']:,.2f}`**")
-            else:
-                st.success(f"🎉 Net Refund Receivable from CRA: **`${abs(gst_ret['net_tax_due_line109']):,.2f}`**")
+        gst_start_filter = None
+        gst_end_filter = None
+        if gst_period_mode == "Custom Date Range":
+            with col_gp2:
+                gst_custom_start = st.date_input("Start Date", key="gst_custom_start_date")
+                gst_start_filter = datetime.combine(gst_custom_start, datetime.min.time())
+            with col_gp3:
+                gst_custom_end = st.date_input("End Date", key="gst_custom_end_date")
+                gst_end_filter = datetime.combine(gst_custom_end, datetime.max.time())
+        else:
+            with col_gp2:
+                st.markdown(f"**Filing Frequency:** *{client.gst_period}*")
+            with col_gp3:
+                st.markdown(f"**Accounting Method:** *{client.gst_method}*")
                 
+        gst_ret = generate_gst_return_summary(db, client_id, start_date=gst_start_filter, end_date=gst_end_filter)
+        
+        if not gst_ret:
+            st.info("No recorded transactions found for this period.")
+        else:
+            net_tax_color = "#E69F00" if gst_ret['net_tax_due_line109'] > 0 else "#0072B2"
+            
+            # Form GST34 Netfile Summary Card
+            col_gst_card, col_gst_stats = st.columns([3, 2])
+            with col_gst_card:
+                st.markdown(
+                    f"""
+                    <div style="background-color: #f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; margin: 0.5rem 0;">
+                        <h4 style="color:#0f172a; margin-top:0;">🍁 Form GST34 Netfile Summary</h4>
+                        <table style="width:100%; border-collapse: collapse; font-size: 0.95rem;">
+                            <tr style="border-bottom: 1px solid #e2e8f0; height: 36px;">
+                                <td><b>Line 101:</b> Taxable Sales & Revenue</td>
+                                <td style="text-align:right;"><b>${gst_ret['gross_sales_revenue']:,.2f}</b></td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0; height: 36px;">
+                                <td><b>Line 103:</b> GST/HST Collected or Payable</td>
+                                <td style="text-align:right; color:#1e293b;"><b>${gst_ret['gst_collected_line103']:,.2f}</b></td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0; height: 36px;">
+                                <td><b>Line 105:</b> Adjustments (GST collected)</td>
+                                <td style="text-align:right;">$0.00</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e2e8f0; height: 36px;">
+                                <td><b>Line 108:</b> Input Tax Credits (ITCs) Claimed</td>
+                                <td style="text-align:right; color:#0072B2;"><b>${gst_ret['itcs_claimed_line108']:,.2f}</b></td>
+                            </tr>
+                            <tr style="height: 48px;">
+                                <td><b style="font-size:1.1rem; color:{net_tax_color};">Line 109: Net Tax Remittance / (Refund)</b></td>
+                                <td style="text-align:right;"><b style="font-size:1.15rem; color:{net_tax_color};">${gst_ret['net_tax_due_line109']:,.2f}</b></td>
+                            </tr>
+                        </table>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                if gst_ret['net_tax_due_line109'] > 0:
+                    st.warning(f"⚠️ Net Tax Payable to CRA: **`${gst_ret['net_tax_due_line109']:,.2f}`**")
+                else:
+                    st.success(f"🎉 Net Refund Receivable from CRA: **`${abs(gst_ret['net_tax_due_line109']):,.2f}`**")
+
+            with col_gst_stats:
+                st.markdown("##### 📊 Tax Treatment Overview")
+                stats = gst_ret.get("treatment_stats", {})
+                for treat_name, s_data in stats.items():
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style="background-color:#ffffff; border:1px solid #e2e8f0; border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.4rem;">
+                                <div style="display:flex; justify-content:space-between; font-weight:600; font-size:0.9rem;">
+                                    <span>{treat_name}</span>
+                                    <span style="color:#0072B2;">ITC: ${s_data['itc_claimed']:,.2f}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#64748b; margin-top:2px;">
+                                    <span>Spend: ${s_data['spend']:,.2f} ({s_data['count']} txs)</span>
+                                    <span>GST Paid: ${s_data['gst_paid']:,.2f}</span>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+            
+            st.markdown("---")
+            
+            # --- 1. LINE 101 & 103: SALES & GST COLLECTED BREAKDOWN ---
+            st.markdown("### 📈 Line 101 & 103: Taxable Sales & GST Collected Breakdown")
+            sales_items = gst_ret.get("sales_items", [])
+            if not sales_items:
+                st.info("No recorded sales transactions.")
+            else:
+                with st.expander(f"📂 View All Taxable Sales Transactions ({len(sales_items)} items) — Net Sales: `${gst_ret['gross_sales_revenue']:,.2f}` | GST: `${gst_ret['gst_collected_line103']:,.2f}`", expanded=False):
+                    sales_df_data = []
+                    for s in sales_items:
+                        dt_s = s["date"].strftime("%Y-%m-%d") if isinstance(s["date"], datetime) else str(s["date"])
+                        sales_df_data.append({
+                            "Date": dt_s,
+                            "Customer / Description": s["vendor"],
+                            "Memo": s["description"],
+                            "Category": s["category"],
+                            "Total Invoiced": f"${s['total_amount']:,.2f}",
+                            "Net Sales (Line 101)": f"${s['net_sales']:,.2f}",
+                            "GST Collected (Line 103)": f"${s['gst_collected']:,.2f}",
+                            "Type": s["type"]
+                        })
+                    st.dataframe(pd.DataFrame(sales_df_data), use_container_width=True, hide_index=True)
+                    
+                    # Sales summary metrics
+                    col_sm1, col_sm2, col_sm3 = st.columns(3)
+                    with col_sm1:
+                        st.metric("Total Taxable Sales (Line 101)", f"${gst_ret['gross_sales_revenue']:,.2f}")
+                    with col_sm2:
+                        st.metric("Total GST Collected (Line 103)", f"${gst_ret['gst_collected_line103']:,.2f}")
+                    with col_sm3:
+                        st.metric("Contributing Invoices", len(sales_items))
+
+            st.write("")
+            st.markdown("---")
+            
+            # --- 2. LINE 108: INPUT TAX CREDITS (ITCs) BREAKDOWN BY CATEGORY ---
+            st.markdown("### 📉 Line 108: Input Tax Credits (ITCs) Breakdown by Expense Category")
+            itc_cats = gst_ret.get("itc_by_category", {})
+            if not itc_cats:
+                st.info("No recorded business expenses for Input Tax Credits.")
+            else:
+                st.caption("💡 **Click any category below to view contributing expense receipts and exact ITC claims:**")
+                
+                # Sort categories by total ITCs claimed descending
+                sorted_cats = sorted(itc_cats.values(), key=lambda x: x["itc_claimed"], reverse=True)
+                
+                for c_info in sorted_cats:
+                    cat_name = c_info["category"]
+                    c_spend = c_info["total_spend"]
+                    c_gst = c_info["gst_paid"]
+                    c_itc = c_info["itc_claimed"]
+                    c_items = c_info["items"]
+                    
+                    exp_label = f"📁 **{cat_name}** — ITCs Claimed: `${c_itc:,.2f}` | GST Paid: `${c_gst:,.2f}` | Spend: `${c_spend:,.2f}` ({len(c_items)} transactions)"
+                    with st.expander(exp_label, expanded=False):
+                        cat_df_data = []
+                        for itm in c_items:
+                            dt_i = itm["date"].strftime("%Y-%m-%d") if isinstance(itm["date"], datetime) else str(itm["date"])
+                            cat_df_data.append({
+                                "Date": dt_i,
+                                "Vendor / Payee": itm["vendor"],
+                                "Memo": itm["description"],
+                                "Spend ($ CAD)": f"${itm['spend']:,.2f}",
+                                "GST Paid (5%)": f"${itm['gst_paid']:,.2f}",
+                                "ITC Claimed ($)": f"${itm['itc_claimed']:,.2f}",
+                                "Treatment": itm["treatment"]
+                            })
+                        st.dataframe(pd.DataFrame(cat_df_data), use_container_width=True, hide_index=True)
+                        
+                        col_ic1, col_ic2, col_ic3, col_ic4 = st.columns(4)
+                        with col_ic1:
+                            st.metric("Category Spend", f"${c_spend:,.2f}")
+                        with col_ic2:
+                            st.metric("Total GST Paid", f"${c_gst:,.2f}")
+                        with col_ic3:
+                            st.metric("ITCs Claimable", f"${c_itc:,.2f}")
+                        with col_ic4:
+                            if st.button(f"📖 View in GL", key=f"btn_gst_gl_{cat_name}"):
+                                st.session_state["ledger_category_filter"] = cat_name
+                                st.toast(f"Category filter set to '{cat_name}'. Open the '📖 General Ledger' tab.", icon="📌")
+            
             # Export options
             st.write("")
-            st.markdown("#### 📥 Export Statement")
+            st.markdown("---")
+            st.markdown("#### 📥 Export GST Statement & Breakdown")
             col_ex_gst1, col_ex_gst2 = st.columns(2)
             with col_ex_gst1:
                 gst_rows = [
@@ -337,7 +635,7 @@ def render_reports(db):
                     {"Line": "Line 103", "Description": "GST/HST Collected or Payable", "Amount": gst_ret['gst_collected_line103']},
                     {"Line": "Line 105", "Description": "Adjustments (GST collected)", "Amount": 0.0},
                     {"Line": "Line 108", "Description": "Input Tax Credits (ITCs) Claimed", "Amount": gst_ret['itcs_claimed_line108']},
-                    {"Line": "Line 109", "Description": "Net Tax Remittance / Refund", "Amount": gst_ret['net_tax_due_line109']}
+                    {"Line": "Line 109", "Description": "Net Tax Remittance / (Refund)", "Amount": gst_ret['net_tax_due_line109']}
                 ]
                 gst_df = pd.DataFrame(gst_rows)
                 excel_gst = generate_excel_report(gst_df, sheet_name="GST Return")

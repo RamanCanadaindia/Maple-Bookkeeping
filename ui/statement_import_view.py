@@ -7,6 +7,7 @@ from services.duplicate_service import check_is_duplicate
 from services.transfer_service import detect_internal_transfers
 from services.audit_service import log_action
 from core.models import Transaction, ClientBankAccount
+from services.local_mapping_service import LocalMappingEngine, learn_mapping
 
 def render_statement_import(db):
     """
@@ -112,7 +113,7 @@ def render_statement_import(db):
         
         st.write("")
         st.subheader("📋 Transaction Ingestion Review Panel")
-        st.info("Normalize merchant descriptions and inspect duplicates before importing into general ledger.")
+        st.info("Desktop mapping uses this client's rules and confirmed history. Transaction text stays on this computer.")
         
         # Build bank map for internal transfer detection
         all_accounts = db.query(ClientBankAccount).filter(ClientBankAccount.client_id == client_id).all()
@@ -126,6 +127,8 @@ def render_statement_import(db):
         processed_batch = detect_internal_transfers(batch, bank_map)
         
         # Apply duplicate checks on batch
+        mapper = LocalMappingEngine(db, client_id)
+        mapping_results = mapper.categorize_many(processed_batch)
         review_data = []
         for idx, tx in enumerate(processed_batch):
             is_dup = check_is_duplicate(
@@ -137,6 +140,12 @@ def render_statement_import(db):
                 cleaned_desc=tx["cleaned_description"]
             )
             
+            mapping = mapping_results[idx]
+            imported_category = (tx.get("category") or "").strip()
+            # A category supplied by the file is treated as a user-provided value.
+            suggested_category = imported_category or mapping.category
+            confidence = 1.0 if imported_category else mapping.confidence
+            needs_review = False if imported_category else mapping.review_required
             review_data.append({
                 "Index": idx,
                 "Date": tx["date"].strftime("%Y-%m-%d"),
@@ -144,7 +153,10 @@ def render_statement_import(db):
                 "Merchant": tx["cleaned_description"],
                 "Amount ($ CAD)": f"${tx['amount']:,.2f}",
                 "Balance ($)": f"${tx['balance']:,.2f}",
-                "Category": tx.get("category", "") or "",
+                "Category": suggested_category,
+                "Confidence": confidence,
+                "Mapping Source": "imported" if imported_category else mapping.source,
+                "Review Required": needs_review,
                 "Duplicate?": "⚠️ Yes (Match Found)" if is_dup else "No",
                 "Internal Transfer?": "🔄 Yes" if tx.get("is_transfer") else "No",
                 "Skip Import": is_dup,  # Default to skipping if duplicate
@@ -160,10 +172,14 @@ def render_statement_import(db):
         
         # Render clean editable dataframe review grid
         edited_df = st.data_editor(
-            df_review[["Date", "Original Memo", "Merchant", "Amount ($ CAD)", "Balance ($)", "Category", "Duplicate?", "Internal Transfer?", "Skip Import"]],
+            df_review[["Date", "Original Memo", "Merchant", "Amount ($ CAD)", "Balance ($)", "Category", "Confidence", "Mapping Source", "Review Required", "Duplicate?", "Internal Transfer?", "Skip Import"]],
+            column_config={
+                "Confidence": st.column_config.ProgressColumn("Confidence", min_value=0.0, max_value=1.0, format="%.0f%%"),
+                "Review Required": st.column_config.CheckboxColumn("Review?"),
+            },
             use_container_width=True,
             num_rows="fixed",
-            disabled=["Date", "Original Memo", "Amount ($ CAD)", "Balance ($)", "Duplicate?", "Internal Transfer?"]
+            disabled=["Date", "Original Memo", "Amount ($ CAD)", "Balance ($)", "Confidence", "Mapping Source", "Duplicate?", "Internal Transfer?"]
         )
         
         st.write("")
@@ -229,10 +245,15 @@ def render_statement_import(db):
                     category=cat_final,
                     is_transfer=orig_tx.get("is_transfer", False),
                     transfer_linked_acc=orig_tx.get("transfer_linked_acc", None),
-                    confidence=1.0, # Rule based
-                    review_required=False
+                    confidence=float(row.get("Confidence", 0.0)),
+                    review_required=bool(row.get("Review Required", False))
                 )
                 db.add(db_tx)
+                # Category edits in the review grid are explicit confirmations and
+                # become client-only desktop memory for the next statement.
+                original_suggestion = str(df_review.iloc[index]["Category"]).strip()
+                if cat_final and (cat_final != original_suggestion or not bool(row.get("Review Required", False))):
+                    learn_mapping(db, client_id, row["Merchant"], cat_final, commit=False)
                 posted_txs.append(db_tx)
                 posted_count += 1
                 

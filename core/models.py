@@ -144,6 +144,25 @@ class CategoryRule(Base):
     client = relationship("Client")
 
 
+class LearnedMapping(Base):
+    """A client-scoped mapping learned from a confirmed desktop classification."""
+    __tablename__ = "learned_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    normalized_vendor = Column(String, nullable=False)
+    sample_description = Column(String, nullable=True)
+    category = Column(String, nullable=False)
+    gst_treatment = Column(String, default="Standard")
+    itc_eligible = Column(Boolean, default=True)
+    business_pct = Column(Float, default=100.0)
+    confirmation_count = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    client = relationship("Client")
+
+
 class CustomCategory(Base):
     __tablename__ = "custom_categories"
 

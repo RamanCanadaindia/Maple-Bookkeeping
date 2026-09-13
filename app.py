@@ -1,5 +1,18 @@
 import streamlit as st
 from core.database import engine, SessionLocal, Base
+import importlib
+import ui.reports_view
+import ui.ledger_view
+import services.report_service
+import services.drilldown_service
+import services.gst_service
+
+importlib.reload(ui.reports_view)
+importlib.reload(ui.ledger_view)
+importlib.reload(services.report_service)
+importlib.reload(services.drilldown_service)
+importlib.reload(services.gst_service)
+
 from services.auth_service import seed_default_users
 from ui.login_view import render_login
 from ui.dashboard_view import render_dashboard
@@ -9,6 +22,8 @@ from ui.reports_view import render_reports
 from ui.ledger_view import render_ledger_editor
 from ui.receipt_view import render_receipt_matcher
 from ui.user_view import render_user_management
+
+# Version 2.1: Reconciled Financial Statement Drill-Down & Reporting
 
 # Setup Page configurations
 st.set_page_config(

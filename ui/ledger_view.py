@@ -5,6 +5,7 @@ from services.ledger_service import update_transaction_category, update_transact
 from services.ai_service import suggest_merchant_category, VALID_CATEGORIES
 from services.rule_service import get_client_rules, create_category_rule, match_local_rules
 from core.models import Transaction, CategoryRule, ClientBankAccount, CustomCategory
+from services.local_mapping_service import apply_to_suspense_transactions, learn_mapping
 
 def render_ledger_editor(db):
     """
@@ -65,7 +66,7 @@ def render_ledger_editor(db):
             
             if can_run:
                 st.markdown("### ⚡ Auto-Categorize Uncategorized Transactions")
-                st.markdown("Scan all transactions to automatically match descriptions against your client's saved merchant keyword rules.")
+                st.markdown("Run the offline desktop mapper using client rules, confirmed history, and local similarity. No transaction data is uploaded.")
                 
                 # Check if there is an undo batch available
                 last_batch = st.session_state.get("last_auto_cat_batch")
@@ -203,7 +204,11 @@ def render_ledger_editor(db):
             with col_f1:
                 categories_present = sorted(list(set(t.category or ("Suspense Revenue" if t.amount > 0 else "Suspense Expense") for t in txs)))
                 filter_options = ["All Categories"] + categories_present
-                selected_filter = st.selectbox("🔍 Filter by Category", filter_options, index=0, key="ledger_category_filter")
+                current_cat_filter = st.session_state.get("ledger_category_filter", "All Categories")
+                if current_cat_filter not in filter_options:
+                    filter_options.append(current_cat_filter)
+                default_idx = filter_options.index(current_cat_filter) if current_cat_filter in filter_options else 0
+                selected_filter = st.selectbox("🔍 Filter by Category", filter_options, index=default_idx, key="ledger_category_filter")
                 
             # Build Bank Names Map
             bank_names = {}
@@ -490,7 +495,7 @@ def render_ledger_editor(db):
                 with col_b1:
                     bulk_cat = st.selectbox("Set Category to...", ["No Change"] + options_categories, key="bulk_cat_select")
                 with col_b2:
-                    bulk_gst = st.selectbox("Set GST Treatment to...", ["No Change", "Standard", "Exempt / Zero-Rated"], key="bulk_gst_select")
+                    bulk_gst = st.selectbox("Set GST Treatment to...", ["No Change", "Standard (5%)", "Exempt / Zero-Rated"], key="bulk_gst_select")
                 with col_b3:
                     st.write("")
                     apply_bulk = st.button("⚡ Apply Bulk Update", type="primary", use_container_width=True)
@@ -519,7 +524,7 @@ def render_ledger_editor(db):
                                         tx.gst_amount = 0.0
                                         tx.itc_amount = 0.0
                                         modified = True
-                                    elif bulk_gst == "Standard":
+                                    elif bulk_gst in ("Standard (5%)", "Standard"):
                                         # Recalculate standard 5% included GST
                                         amount = abs(tx.amount)
                                         gst_rate = 0.05
@@ -808,52 +813,52 @@ def render_ledger_editor(db):
             # Rule Management & AI Section combined under bank reconciliation
             st.write("")
             st.markdown("---")
-            st.markdown("### ⚙️ Rule Management & AI Classifier")
+            st.markdown("### ⚙️ Rule Management & Desktop Mapper")
             
             # AI and Bulk triggers
             protect_manual = st.checkbox("🔒 Protect manual classifications (do not overwrite already categorized transactions)", value=True, key="protect_manual_check")
             
             col_t1, col_t2 = st.columns(2)
             with col_t1:
-                ai_trigger = st.button("⚡ Run AI Auto-Categorize", type="primary", use_container_width=True, 
-                                       help="Applies local rules first, then queries Gemini AI to categorize all Suspense transactions.")
+                ai_trigger = st.button("⚡ Run Desktop Auto-Categorize", type="primary", use_container_width=True,
+                                       help="Uses local client rules and confirmed history; no online upload.")
             with col_t2:
                 reapply_trigger = st.button("🔄 Re-Apply Rules to All", type="secondary", use_container_width=True,
                                             help="Re-runs keyword rule matching on all transactions and updates their GST/ITC values.")
                 
             # Process triggers
             if ai_trigger:
-                suspense_txs = db.query(Transaction).filter(
-                    Transaction.client_id == client_id,
-                    (Transaction.category == None) | (Transaction.category.in_(["Suspense Expense", "Suspense Revenue"]))
-                ).all()
-                
-                if not suspense_txs:
-                    st.info("General Ledger contains no suspense items needing classification.")
-                else:
-                    progress_bar = st.progress(0.0)
-                    status_text = st.empty()
-                    
-                    classified = 0
-                    for idx, tx in enumerate(suspense_txs):
-                        status_text.text(f"Analyzing transaction {idx+1}/{len(suspense_txs)}: {tx.cleaned_description}...")
-                        
-                        # 1. Match local rules first
-                        rule = match_local_rules(db, client_id, tx.cleaned_description, tx.original_description)
-                        if rule:
-                            update_transaction_category(db, tx.id, rule.category)
-                        else:
-                            # 2. Call Gemini AI
-                            ai_res = suggest_merchant_category(tx.cleaned_description)
-                            category = ai_res.get("category", "Suspense Expense")
-                            update_transaction_category(db, tx.id, category)
-                            
-                        classified += 1
-                        progress_bar.progress((idx + 1) / len(suspense_txs))
-                        
-                    status_text.empty()
-                    progress_bar.empty()
-                    st.success(f"Successfully auto-categorized {classified} ledger lines using Rules & Gemini AI!")
+                result = apply_to_suspense_transactions(db, client_id)
+                st.success(f"Desktop mapping classified {result['updated']} transactions; {result['review']} remain in the review queue.")
+                st.rerun()
+
+            review_txs = [tx for tx in txs if tx.review_required]
+            if review_txs:
+                st.markdown(f"#### 🟠 Mapping Review Queue ({len(review_txs)})")
+                review_df = pd.DataFrame([{
+                    "ID": tx.id, "Merchant": tx.cleaned_description,
+                    "Suggested Category": tx.category or ("Suspense Revenue" if tx.amount > 0 else "Suspense Expense"),
+                    "Confidence": tx.confidence or 0.0,
+                } for tx in review_txs])
+                edited_review = st.data_editor(
+                    review_df,
+                    column_config={
+                        "Suggested Category": st.column_config.SelectboxColumn("Confirmed Category", options=options_categories, required=True),
+                        "Confidence": st.column_config.ProgressColumn("Confidence", min_value=0.0, max_value=1.0, format="%.0f%%"),
+                    },
+                    disabled=["ID", "Merchant", "Confidence"], use_container_width=True,
+                    key="desktop_mapping_review",
+                )
+                if st.button("✅ Confirm Reviewed Mappings", key="confirm_desktop_mappings"):
+                    for _, row in edited_review.iterrows():
+                        tx = db.get(Transaction, int(row["ID"]))
+                        category = str(row["Suggested Category"])
+                        update_transaction_category(db, tx.id, category)
+                        tx.review_required = False
+                        tx.confidence = 1.0
+                        learn_mapping(db, client_id, tx.cleaned_description, category, commit=False)
+                    db.commit()
+                    st.success("Reviewed mappings saved as client-specific desktop memory.")
                     st.rerun()
 
             if reapply_trigger:
@@ -896,7 +901,7 @@ def render_ledger_editor(db):
                 
                 col_g1, col_g2 = st.columns(2)
                 with col_g1:
-                    rule_gst = st.selectbox("GST Treatment", ["Standard", "Exempt", "Zero-Rated"], key="rule_gst_select")
+                    rule_gst = st.selectbox("GST Treatment", ["Standard (5%)", "Exempt", "Zero-Rated"], key="rule_gst_select")
                 with col_g2:
                     st.write("")
                     rule_itc = st.checkbox("ITC Eligible", value=True, key="rule_itc_check")
@@ -907,9 +912,10 @@ def render_ledger_editor(db):
                     if not rule_kw:
                         st.error("Please enter a match keyword.")
                     else:
+                        gst_val = "Standard" if "Standard" in rule_gst else rule_gst
                         rule = create_category_rule(
                             db, client_id, rule_kw, rule_cat, 
-                            gst_treatment=rule_gst, itc_eligible=rule_itc, business_pct=rule_pct
+                            gst_treatment=gst_val, itc_eligible=rule_itc, business_pct=rule_pct
                         )
                         
                         # Auto-apply to existing SUSPENSE transactions only
@@ -1147,11 +1153,12 @@ def render_ledger_editor(db):
                 else:
                     rules_data = []
                     for r in rules:
+                        gst_disp = "Standard (5%)" if r.gst_treatment == "Standard" else r.gst_treatment
                         rules_data.append({
                             "RuleID": r.id,
                             "Keyword Match": r.keyword,
                             "Map Category": r.category,
-                            "GST Treatment": r.gst_treatment,
+                            "GST Treatment": gst_disp,
                             "ITC Eligible": r.itc_eligible,
                             "Business Use %": r.business_pct
                         })
@@ -1181,7 +1188,7 @@ def render_ledger_editor(db):
                             ),
                             "GST Treatment": st.column_config.SelectboxColumn(
                                 "GST Treatment",
-                                options=["Standard", "Exempt", "Zero-Rated"],
+                                options=["Standard (5%)", "Exempt", "Zero-Rated"],
                                 required=True
                             ),
                             "ITC Eligible": st.column_config.CheckboxColumn("ITC Eligible"),
@@ -1219,7 +1226,8 @@ def render_ledger_editor(db):
                             db_rule = db.query(CategoryRule).filter(CategoryRule.id == r_id).first()
                             if db_rule:
                                 db_rule.category = row["Map Category"]
-                                db_rule.gst_treatment = row["GST Treatment"]
+                                gst_to_save = "Standard" if "Standard" in str(row["GST Treatment"]) else str(row["GST Treatment"])
+                                db_rule.gst_treatment = gst_to_save
                                 db_rule.itc_eligible = row["ITC Eligible"]
                                 db_rule.business_pct = float(row["Business Use %"])
                                 db.commit()

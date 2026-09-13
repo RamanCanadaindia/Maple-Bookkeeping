@@ -11,11 +11,12 @@ def post_transaction_to_gl(db: Session, tx: Transaction) -> JournalEntry:
     acc = db.query(ClientBankAccount).filter(ClientBankAccount.id == tx.account_id).first()
     bank_acc_name = acc.account_name if acc else "Bank Account"
     
-    # Check if a journal entry already exists for this transaction
-    existing = db.query(JournalEntry).filter(JournalEntry.transaction_id == tx.id).first()
-    if existing:
-        # Delete old journal entry lines to overwrite
-        db.delete(existing)
+    # Check if journal entries already exist for this transaction and purge all of them
+    existing_entries = db.query(JournalEntry).filter(JournalEntry.transaction_id == tx.id).all()
+    if existing_entries:
+        for existing in existing_entries:
+            db.query(JournalLine).filter(JournalLine.journal_entry_id == existing.id).delete(synchronize_session=False)
+            db.delete(existing)
         db.commit()
         
     entry = JournalEntry(

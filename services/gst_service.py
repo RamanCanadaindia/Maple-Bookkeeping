@@ -6,11 +6,9 @@ from sqlalchemy.orm import Session
 def calculate_transaction_gst(tx: Transaction, client: Client, db: Session = None) -> tuple:
     """
     Computes GST rate, GST amount, and Input Tax Credit (ITC) eligibility for a transaction.
-    If a DB session is provided, queries matching keyword rules first.
-    Applies special Canadian rules:
-    - Meals & Entertainment: 50% limit.
-    - Mixed Use/Vehicle: multiplied by client.business_use_pct.
-    Returns (gst_amount, itc_eligible_amount)
+    Only calculates GST if an explicit user-defined CategoryRule matches.
+    Does NOT automatically force or guess GST on transactions without explicit user instructions/rules.
+    Returns (gst_amount, itc_eligible_amount).
     """
     # 1. Check local keyword rules first if db session is provided
     if db:
@@ -28,7 +26,7 @@ def calculate_transaction_gst(tx: Transaction, client: Client, db: Session = Non
             if not rule.itc_eligible:
                 return gst_amount, 0.0
                 
-            cat_lower = rule.category.lower()
+            cat_lower = (rule.category or "").lower()
             if "vehicle" in cat_lower or "fuel" in cat_lower or "gas" in cat_lower or "auto" in cat_lower:
                 factor = ((rule.business_pct or 100.0) / 100.0) * ((client.business_use_pct or 100.0) / 100.0)
             else:
@@ -41,95 +39,160 @@ def calculate_transaction_gst(tx: Transaction, client: Client, db: Session = Non
                 
             return gst_amount, itc_eligible_amount
 
-    # 2. Fall back to category-based standard rules
-    # 5% GST is standard in Canada
-    gst_rate = 0.05
-    amount = abs(tx.amount)
-    category_lower = (tx.category or "").lower()
-    
-    # Non-taxable categories (CRA payments, Bank charges, transfers)
-    exempt_categories = [
-        "transfer", "shareholder", "loan", "interest", "bank charges", 
-        "bank fees", "cra", "tax", "payroll", "dividend", 
-        "due to related party", "opening balance equity", "equity"
-    ]
-    if any(ec in category_lower for ec in exempt_categories):
-        return 0.0, 0.0
-        
-    # Calculate GST paid (assuming standard 5% included in total: GST = Total * 5/105)
-    gst_amount = round(amount * (gst_rate / (1.0 + gst_rate)), 2)
-    itc_eligible_amount = gst_amount
-    
-    # Meals & Entertainment rule (50% limit)
-    if "meals" in category_lower or "entertainment" in category_lower or "food" in category_lower:
-        itc_eligible_amount = round(gst_amount * 0.50, 2)
-        
-    # Vehicle / Mixed-use expenses rule (Business Use %)
-    elif "vehicle" in category_lower or "fuel" in category_lower or "gas" in category_lower or "auto" in category_lower:
-        factor = (client.business_use_pct or 100.0) / 100.0
-        itc_eligible_amount = round(gst_amount * factor, 2)
-        
-    return gst_amount, itc_eligible_amount
+    # 2. No automatic guessing: Default to 0.0 / 0.0 until user manually sets GST or defines a rule
+    return 0.0, 0.0
 
-def generate_gst_return_summary(db: Session, client_id: int) -> dict:
+def generate_gst_return_summary(db: Session, client_id: int, start_date=None, end_date=None) -> dict:
     """
-    Generates a Netfile-ready GST return summary.
-    Supports Regular Method and Quick Method.
+    Generates a Netfile-ready GST return summary with complete transaction breakdown.
+    Supports Regular Method and Quick Method, date range filtering, and category-level ITC tracking.
     """
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         return {}
         
-    txs = db.query(Transaction).filter(Transaction.client_id == client_id).all()
+    query = db.query(Transaction).filter(Transaction.client_id == client_id)
+    if start_date is not None:
+        query = query.filter(Transaction.date >= start_date)
+    if end_date is not None:
+        query = query.filter(Transaction.date <= end_date)
+    txs = query.order_by(Transaction.date.asc()).all()
     
     gst_collected = 0.0
     gst_paid = 0.0
     itc_claimed = 0.0
     gross_sales = 0.0
     
+    sales_items = []
+    itc_by_category = {}
+    treatment_stats = {
+        "Standard (5%)": {"spend": 0.0, "gst_paid": 0.0, "itc_claimed": 0.0, "count": 0},
+        "Meals (50% ITC)": {"spend": 0.0, "gst_paid": 0.0, "itc_claimed": 0.0, "count": 0},
+        "Vehicle / Business %": {"spend": 0.0, "gst_paid": 0.0, "itc_claimed": 0.0, "count": 0},
+        "Exempt / Zero-Rated": {"spend": 0.0, "gst_paid": 0.0, "itc_claimed": 0.0, "count": 0}
+    }
+    
     for tx in txs:
-        # Use stored database values (respects manual edits, bulk updates, and custom exemptions)
-        gst_amt = tx.gst_amount if tx.gst_amount is not None else 0.0
-        itc_eligible = tx.itc_amount if tx.itc_amount is not None else 0.0
+        gst_amt = round(tx.gst_amount or 0.0, 2)
+        itc_eligible = round(tx.itc_amount or 0.0, 2)
+        cat_name = tx.category or "Uncategorized"
+        category_lower = cat_name.lower()
         
-        category_lower = (tx.category or "").lower()
-        is_revenue = ("revenue" in category_lower or "sales" in category_lower or "fees" in category_lower or "income" in category_lower) and "bank fees" not in category_lower
+        is_revenue = (
+            ("revenue" in category_lower or "sales" in category_lower or "fees" in category_lower or "income" in category_lower)
+            and "bank fees" not in category_lower
+        )
+
+        amount_val = abs(tx.amount)
+        dt_val = tx.date
+        vendor_val = tx.cleaned_description or tx.original_description or "Unknown Vendor"
+        memo_val = tx.original_description or ""
 
         if is_revenue:
             if tx.amount > 0:
-                gross_sales += (tx.amount - gst_amt)
+                net_sale = amount_val - gst_amt
+                gross_sales += net_sale
                 gst_collected += gst_amt
+                sales_items.append({
+                    "tx_id": tx.id,
+                    "date": dt_val,
+                    "vendor": vendor_val,
+                    "description": memo_val,
+                    "category": cat_name,
+                    "total_amount": amount_val,
+                    "net_sales": net_sale,
+                    "gst_collected": gst_amt,
+                    "type": "Sale"
+                })
             else:
                 # Customer refund/credit note
-                gross_sales += (tx.amount + gst_amt)
+                net_sale = -(amount_val - gst_amt)
+                gross_sales += net_sale
                 gst_collected -= gst_amt
+                sales_items.append({
+                    "tx_id": tx.id,
+                    "date": dt_val,
+                    "vendor": vendor_val,
+                    "description": memo_val,
+                    "category": cat_name,
+                    "total_amount": -amount_val,
+                    "net_sales": net_sale,
+                    "gst_collected": -gst_amt,
+                    "type": "Customer Refund"
+                })
         else:
+            # Expense item
             if tx.amount < 0:
-                gst_paid += gst_amt
-                # Only claim ITCs if Regular Method or Capital purchases
+                tx_spend = amount_val
+                tx_gst = gst_amt
+                
+                # Determine actual ITC claim based on method
                 if client.gst_method == "Regular":
-                    itc_claimed += itc_eligible
+                    actual_itc = itc_eligible
                 else:
-                    # Quick Method: Can only claim ITCs on Capital Assets
-                    if "capital" in category_lower or "equipment" in category_lower:
-                        itc_claimed += itc_eligible
+                    actual_itc = itc_eligible if ("capital" in category_lower or "equipment" in category_lower) else 0.0
+                    
+                gst_paid += tx_gst
+                itc_claimed += actual_itc
+                sign_mult = 1.0
             else:
                 # Expense refund/reimbursement
-                gst_paid -= gst_amt
+                tx_spend = -amount_val
+                tx_gst = -gst_amt
                 if client.gst_method == "Regular":
-                    itc_claimed -= itc_eligible
+                    actual_itc = -itc_eligible
                 else:
-                    if "capital" in category_lower or "equipment" in category_lower:
-                        itc_claimed -= itc_eligible
+                    actual_itc = -itc_eligible if ("capital" in category_lower or "equipment" in category_lower) else 0.0
+                    
+                gst_paid += tx_gst
+                itc_claimed += actual_itc
+                sign_mult = -1.0
+                
+            # Classify tax treatment for reporting breakdown
+            if tx_gst == 0.0:
+                treatment_key = "Exempt / Zero-Rated"
+            elif "meals" in category_lower or "entertainment" in category_lower or "food" in category_lower:
+                treatment_key = "Meals (50% ITC)"
+            elif "vehicle" in category_lower or "fuel" in category_lower or "gas" in category_lower or "auto" in category_lower:
+                treatment_key = "Vehicle / Business %"
+            else:
+                treatment_key = "Standard (5%)"
+                
+            treatment_stats[treatment_key]["spend"] += tx_spend
+            treatment_stats[treatment_key]["gst_paid"] += tx_gst
+            treatment_stats[treatment_key]["itc_claimed"] += actual_itc
+            treatment_stats[treatment_key]["count"] += 1
+            
+            # Group by category
+            if cat_name not in itc_by_category:
+                itc_by_category[cat_name] = {
+                    "category": cat_name,
+                    "total_spend": 0.0,
+                    "gst_paid": 0.0,
+                    "itc_claimed": 0.0,
+                    "count": 0,
+                    "items": []
+                }
+            itc_by_category[cat_name]["total_spend"] += tx_spend
+            itc_by_category[cat_name]["gst_paid"] += tx_gst
+            itc_by_category[cat_name]["itc_claimed"] += actual_itc
+            itc_by_category[cat_name]["count"] += 1
+            itc_by_category[cat_name]["items"].append({
+                "tx_id": tx.id,
+                "date": dt_val,
+                "vendor": vendor_val,
+                "description": memo_val,
+                "spend": tx_spend,
+                "gst_paid": tx_gst,
+                "itc_claimed": actual_itc,
+                "treatment": treatment_key
+            })
                     
     # Quick method remittance calculation
-    # e.g., BC services rate is 3.6% of gross sales (including GST)
     if client.gst_method == "Quick Method":
-        # Remittance = Gross Revenue * 3.6%
         gst_remittance = round(gross_sales * 0.036, 2)
         net_tax = gst_remittance - itc_claimed
     else:
-        # Regular method
         net_tax = gst_collected - itc_claimed
         
     return {
@@ -138,5 +201,8 @@ def generate_gst_return_summary(db: Session, client_id: int) -> dict:
         "gross_sales_revenue": round(gross_sales, 2),
         "gst_collected_line103": round(gst_collected, 2),
         "itcs_claimed_line108": round(itc_claimed, 2),
-        "net_tax_due_line109": round(net_tax, 2)
+        "net_tax_due_line109": round(net_tax, 2),
+        "sales_items": sales_items,
+        "itc_by_category": itc_by_category,
+        "treatment_stats": treatment_stats
     }
