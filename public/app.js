@@ -177,10 +177,14 @@ async function loadDashboardData() {
         const data = await res.json();
         
         // Update metric values
-        document.getElementById('stat-clients').innerText = data.metrics.totalClients;
-        document.getElementById('stat-schedules').innerText = data.metrics.activeSchedules;
-        document.getElementById('stat-pending').innerText = data.metrics.pendingNotifications;
-        document.getElementById('stat-success').innerText = `${data.metrics.successRate}%`;
+        const statClients = document.getElementById('stat-clients');
+        if (statClients) statClients.innerText = data.metrics.totalClients;
+        const statSched = document.getElementById('stat-schedules');
+        if (statSched) statSched.innerText = data.metrics.activeSchedules;
+        const statPend = document.getElementById('stat-pending');
+        if (statPend) statPend.innerText = data.metrics.pendingNotifications;
+        const statSucc = document.getElementById('stat-success');
+        if (statSucc) statSucc.innerText = `${data.metrics.successRate}%`;
         
         // Update Upcoming alerts table
         const upcomingTbody = document.querySelector('#table-upcoming tbody');
@@ -753,7 +757,8 @@ function updateLiveTemplatePreview() {
         }
     }
     
-    document.querySelector('#preview-subject-bar .val').innerText = compiledSubj;
+    const prevSubj = document.querySelector('#preview-subject-bar .val');
+    if (prevSubj) prevSubj.innerText = compiledSubj;
     
     const iframe = document.getElementById('preview-iframe');
     const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -847,15 +852,17 @@ async function loadSettingsData() {
 }
 
 function showEmailSentModal(recipient, messageId) {
-    document.getElementById('modal-recipient').innerText = recipient || 'Recipient';
-    document.getElementById('modal-msg-id').innerText = messageId || 'Sent successfully';
+    const elRecip = document.getElementById('modal-recipient');
+    if (elRecip) elRecip.innerText = recipient || 'Recipient';
+    const elMsg = document.getElementById('modal-msg-id');
+    if (elMsg) elMsg.innerText = messageId || 'Sent successfully';
     const modal = document.getElementById('email-confirm-modal');
-    modal.classList.add('active');
+    if (modal) modal.classList.add('active');
 }
 
 function closeEmailSentModal() {
     const modal = document.getElementById('email-confirm-modal');
-    modal.classList.remove('active');
+    if (modal) modal.classList.remove('active');
 }
 
 async function sendNotificationNow(id, btnElement) {
@@ -952,7 +959,8 @@ async function loadQuickSendData() {
     document.getElementById('quicksend-iframe').contentWindow.document.open();
     document.getElementById('quicksend-iframe').contentWindow.document.write('');
     document.getElementById('quicksend-iframe').contentWindow.document.close();
-    document.querySelector('#quicksend-subject-bar .val').innerText = '';
+    const qsSubj = document.querySelector('#quicksend-subject-bar .val');
+    if (qsSubj) qsSubj.innerText = '';
 }
 
 async function handleTemplateChange() {
@@ -1042,7 +1050,8 @@ function updateQuickSendPreview() {
             bodyHtml = cachedTemplate.body_html;
             bodyField.value = bodyHtml;
         } else {
-            document.querySelector('#quicksend-subject-bar .val').innerText = 'Loading saved template...';
+            const qsSubj = document.querySelector('#quicksend-subject-bar .val');
+            if (qsSubj) qsSubj.innerText = 'Loading saved template...';
             const iframe = document.getElementById('quicksend-iframe');
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             doc.open();
@@ -1159,7 +1168,8 @@ function updateQuickSendPreview() {
         }
     }
     
-    document.querySelector('#quicksend-subject-bar .val').innerText = compiledSubj;
+    const qsSubj = document.querySelector('#quicksend-subject-bar .val');
+    if (qsSubj) qsSubj.innerText = compiledSubj;
     
     const iframe = document.getElementById('quicksend-iframe');
     const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -1298,7 +1308,8 @@ async function handleQuickSendSubmit(e) {
             document.getElementById('quicksend-iframe').contentWindow.document.open();
             document.getElementById('quicksend-iframe').contentWindow.document.write('');
             document.getElementById('quicksend-iframe').contentWindow.document.close();
-            document.querySelector('#quicksend-subject-bar .val').innerText = '';
+            const qsSubj = document.querySelector('#quicksend-subject-bar .val');
+            if (qsSubj) qsSubj.innerText = '';
         } else {
             showToast('Failed to send custom email: ' + (data.error || 'Unknown error'), 'danger');
         }
