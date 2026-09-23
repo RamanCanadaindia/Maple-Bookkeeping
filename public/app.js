@@ -210,12 +210,13 @@ async function loadDashboardData() {
         // Update dispatch history logs table
         const historyTbody = document.querySelector('#table-history tbody');
         if (data.history.length === 0) {
-            historyTbody.innerHTML = '<tr><td colspan="5" class="empty">No email history found.</td></tr>';
+            historyTbody.innerHTML = '<tr><td colspan="6" class="empty">No email history found.</td></tr>';
         } else {
             historyTbody.innerHTML = data.history.map(h => `
                 <tr>
                     <td>${formatDateTime(h.sent_at)}</td>
                     <td><code>${h.recipient}</code></td>
+                    <td><strong>${h.business_name || h.client_name || '-'}</strong></td>
                     <td>${h.subject}</td>
                     <td><span class="badge badge-${h.status.toLowerCase()}">${h.status}</span></td>
                     <td><span class="help">${h.status === 'Sent' ? (h.message_id || 'Sent successfully') : (h.error_details || 'Unknown Error')}</span></td>

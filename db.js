@@ -200,18 +200,51 @@ class SupabaseAdapter {
 
         // 7. Email History
         if (/FROM email_history/i.test(cleanSql) || /FROM email_histories/i.test(cleanSql)) {
-            const { data, error } = await this.client.from('email_histories').select('*');
+            const { data: histData, error } = await this.client.from('email_histories').select('*').order('id', { ascending: false }).limit(30);
             if (error) throw new Error(error.message);
-            const list = (data || []).map(h => ({
-                id: h.id,
-                notification_id: h.notification_id || h.reminder_id,
-                recipient: h.recipient_email || h.recipient,
-                subject: h.subject,
-                sent_at: h.sent_at,
-                status: h.status,
-                message_id: h.gmail_message_id || h.message_id,
-                error_details: h.error_message || h.error_details
-            }));
+
+            const { data: notifs } = await this.client.from('notifications').select('id, reminder_id');
+            const { data: rems } = await this.client.from('reminders').select('id, client_id');
+            const { data: cls } = await this.client.from('clients').select('id, name, business_name, email');
+
+            const notifMap = new Map((notifs || []).map(n => [n.id, n]));
+            const remMap = new Map((rems || []).map(r => [r.id, r]));
+            const clMap = new Map((cls || []).map(c => [c.id, c]));
+            const clEmailMap = new Map((cls || []).map(c => [c.email ? c.email.toLowerCase() : '', c]));
+
+            const list = (histData || []).map(h => {
+                const notifId = h.notification_id || h.reminder_id;
+                let client = null;
+                if (notifId && notifMap.has(notifId)) {
+                    const remId = notifMap.get(notifId).reminder_id;
+                    if (remId && remMap.has(remId)) {
+                        const clId = remMap.get(remId).client_id;
+                        client = clMap.get(clId);
+                    }
+                }
+                if (!client && h.recipient_email) {
+                    client = clEmailMap.get(h.recipient_email.toLowerCase());
+                }
+
+                const businessName = client?.business_name || client?.name || '-';
+                const clientName = client?.name || client?.business_name || '-';
+                const isFailed = h.status === 'Failed' || !!h.error_message;
+                const actualStatus = isFailed ? 'Failed' : 'Sent';
+                const messageId = h.gmail_message_id || (h.status !== 'Sent' && h.status !== 'Failed' ? h.status : null) || 'Sent successfully';
+
+                return {
+                    id: h.id,
+                    notification_id: notifId,
+                    recipient: h.recipient_email || h.recipient,
+                    business_name: businessName,
+                    client_name: clientName,
+                    subject: h.subject,
+                    sent_at: h.sent_at,
+                    status: actualStatus,
+                    message_id: messageId,
+                    error_details: h.error_message || h.error_details || ''
+                };
+            });
 
             if (/GROUP BY status/i.test(cleanSql)) {
                 const counts = {};

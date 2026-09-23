@@ -80,9 +80,13 @@ app.get('/api/dashboard', async (req, res) => {
         `);
 
         const history = await db.all(`
-            SELECT * FROM email_history
-            ORDER BY sent_at DESC
-            LIMIT 15
+            SELECT h.*, c.business_name, c.name as client_name
+            FROM email_history h
+            LEFT JOIN notifications n ON h.notification_id = n.id
+            LEFT JOIN reminders r ON n.reminder_id = r.id
+            LEFT JOIN clients c ON r.client_id = c.id
+            ORDER BY h.sent_at DESC
+            LIMIT 25
         `);
 
         res.json({
