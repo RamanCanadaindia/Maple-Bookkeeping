@@ -8,6 +8,8 @@ let globalClients = [];
 document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initDashboard();
+    initDashboardSearch();
+    initCompanyLookup();
     initClients();
     initSchedules();
     initTemplates();
@@ -93,6 +95,7 @@ function initNavigation() {
             // Route initialization on page display
             if (targetView === 'dashboard') loadDashboardData();
             if (targetView === 'clients') loadClientsData();
+            if (targetView === 'company-lookup') loadCompanyLookupData();
             if (targetView === 'schedules') loadSchedulesData();
             if (targetView === 'templates') loadTemplatesData();
             if (targetView === 'quicksend') loadQuickSendData();
@@ -387,7 +390,7 @@ async function loadClientsData() {
         // 1. Render Table
         const tbody = document.querySelector('#table-clients tbody');
         if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty">No client files registered. Go to "Add Client" tab.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty">No client files registered. Go to "Add Client" tab.</td></tr>';
         } else {
             tbody.innerHTML = data.map((c, idx) => `
                 <tr>
@@ -398,6 +401,9 @@ async function loadClientsData() {
                     <td>${c.business_name || '-'}</td>
                     <td>${c.fiscal_year_end ? `<span class="badge badge-info">${c.fiscal_year_end}</span>` : '-'}</td>
                     <td><span class="badge badge-active">${c.reminders_count || 0} active</span></td>
+                    <td>
+                        <button onclick="openCompanyLookup(${c.id})" class="btn btn-sm btn-primary">🔍 View Reminders</button>
+                    </td>
                 </tr>
             `).join('');
         }
@@ -866,7 +872,7 @@ function closeEmailSentModal() {
     if (modal) modal.classList.remove('active');
 }
 
-async function sendNotificationNow(id, btnElement) {
+async function sendNotificationNow(id, btnElement, optionalClientId) {
     if (!confirm('Approve and send this reminder now? A BCC copy will also be sent to beedhtaxservices@gmail.com.')) {
         return;
     }
@@ -882,6 +888,11 @@ async function sendNotificationNow(id, btnElement) {
             showToast('Reminder email successfully dispatched to customer!', 'success');
             showEmailSentModal('Customer Email', data.messageId);
             await loadDashboardData();
+            if (optionalClientId) {
+                await loadCompanyActivity(optionalClientId);
+            } else if (currentLookupClientId) {
+                await loadCompanyActivity(currentLookupClientId);
+            }
         } else {
             showToast('Failed to send reminder: ' + (data.error || 'Unknown error'), 'danger');
             if (btnElement) {
@@ -1319,5 +1330,279 @@ async function handleQuickSendSubmit(e) {
     } finally {
         btn.disabled = false;
         btn.innerText = '🚀 Send Email Now';
+    }
+}
+
+
+/* -------------------------------------------------------------
+   Company Search & Lookup Controller
+   ------------------------------------------------------------- */
+let currentLookupClientId = null;
+
+function initCompanyLookup() {
+    const searchInput = document.getElementById('lookup-search-input');
+    const autocompleteList = document.getElementById('lookup-autocomplete-list');
+    const clientSelect = document.getElementById('lookup-client-select');
+
+    if (clientSelect) {
+        clientSelect.addEventListener('change', () => {
+            const clientId = clientSelect.value;
+            if (clientId) {
+                openCompanyLookup(parseInt(clientId, 10));
+            }
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim().toLowerCase();
+            if (!query) {
+                autocompleteList.style.display = 'none';
+                return;
+            }
+
+            const matches = globalClients.filter(c => {
+                const bName = (c.business_name || '').toLowerCase();
+                const cName = (c.name || '').toLowerCase();
+                const email = (c.email || '').toLowerCase();
+                const bn = (c.business_number || '').toLowerCase();
+                return bName.includes(query) || cName.includes(query) || email.includes(query) || bn.includes(query);
+            });
+
+            if (matches.length === 0) {
+                autocompleteList.innerHTML = '<div style="padding: 12px 16px; color: var(--text-muted); font-size: 0.9rem;">No matching companies or clients found.</div>';
+                autocompleteList.style.display = 'block';
+            } else {
+                autocompleteList.innerHTML = matches.map(c => `
+                    <div class="autocomplete-item" data-id="${c.id}">
+                        <div>
+                            <div class="comp-title">🏢 ${c.business_name || c.name}</div>
+                            <div class="comp-sub">👤 ${c.name} &bull; ✉️ ${c.email}</div>
+                        </div>
+                        <span class="badge badge-info">View Reminders &rarr;</span>
+                    </div>
+                `).join('');
+                autocompleteList.style.display = 'block';
+
+                autocompleteList.querySelectorAll('.autocomplete-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const id = parseInt(item.getAttribute('data-id'), 10);
+                        autocompleteList.style.display = 'none';
+                        searchInput.value = '';
+                        openCompanyLookup(id);
+                    });
+                });
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !autocompleteList.contains(e.target)) {
+                autocompleteList.style.display = 'none';
+            }
+        });
+    }
+}
+
+async function loadCompanyLookupData() {
+    if (globalClients.length === 0) {
+        await loadClientsData();
+    }
+    
+    // Populate select
+    const select = document.getElementById('lookup-client-select');
+    if (select) {
+        select.innerHTML = '<option value="">-- Select Registered Company --</option>' + 
+            globalClients.map(c => `<option value="${c.id}" ${currentLookupClientId === c.id ? 'selected' : ''}>${c.business_name || c.name} (Contact: ${c.name})</option>`).join('');
+    }
+
+    // Populate quick chips
+    const chipsContainer = document.getElementById('lookup-chips-container');
+    if (chipsContainer) {
+        chipsContainer.innerHTML = '<span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Quick Pick:</span>' + 
+            globalClients.map(c => `
+                <span class="company-chip ${currentLookupClientId === c.id ? 'active' : ''}" onclick="openCompanyLookup(${c.id})">
+                    🏢 ${c.business_name || c.name}
+                </span>
+            `).join('');
+    }
+
+    // If a company is already selected, refresh its activity
+    if (currentLookupClientId) {
+        await loadCompanyActivity(currentLookupClientId);
+    }
+}
+
+async function openCompanyLookup(clientId) {
+    currentLookupClientId = clientId;
+
+    // Switch view to company-lookup
+    const navBtn = document.querySelector('.nav-btn[data-view="company-lookup"]');
+    if (navBtn) {
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
+        navBtn.classList.add('active');
+        document.getElementById('view-company-lookup').classList.add('active');
+    }
+
+    // Update chips & select
+    document.querySelectorAll('.company-chip').forEach(ch => ch.classList.remove('active'));
+    const select = document.getElementById('lookup-client-select');
+    if (select) select.value = clientId;
+
+    await loadCompanyActivity(clientId);
+}
+
+async function loadCompanyActivity(clientId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/clients/${clientId}/activity`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        const client = data.client;
+        document.getElementById('lookup-empty-prompt').style.display = 'none';
+        document.getElementById('lookup-company-details').style.display = 'block';
+
+        // Update chips active state
+        document.querySelectorAll('.company-chip').forEach(ch => {
+            if (ch.textContent.includes(client.business_name || client.name)) {
+                ch.classList.add('active');
+            } else {
+                ch.classList.remove('active');
+            }
+        });
+
+        // Profile summary card
+        document.getElementById('lookup-comp-name').innerText = client.business_name || client.name;
+        document.getElementById('lookup-comp-contact').innerText = client.name;
+        document.getElementById('lookup-comp-email').innerText = client.email;
+        document.getElementById('lookup-comp-phone').innerText = client.phone || '-';
+        document.getElementById('lookup-comp-yearend').innerText = client.fiscal_year_end || '-';
+        if (client.business_number) {
+            document.getElementById('lookup-comp-bn-wrapper').style.display = 'inline';
+            document.getElementById('lookup-comp-bn').innerText = client.business_number;
+        } else {
+            document.getElementById('lookup-comp-bn-wrapper').style.display = 'none';
+        }
+
+        // Summary Stat Counter Pills
+        document.getElementById('lookup-stat-due').innerText = data.totalDue;
+        document.getElementById('lookup-stat-sent').innerText = data.totalSent;
+        document.getElementById('lookup-stat-schedules').innerText = data.totalSchedules;
+
+        document.getElementById('lookup-due-badge').innerText = `${data.totalDue} Pending`;
+        document.getElementById('lookup-sent-badge').innerText = `${data.totalSent} Dispatched`;
+
+        // 1. Due Reminders Table
+        const dueTbody = document.querySelector('#table-lookup-due tbody');
+        if (data.due.length === 0) {
+            dueTbody.innerHTML = '<tr><td colspan="6" class="empty" style="color: var(--color-success); font-weight: 500;">🎉 No reminders currently due for this company. All filings are up to date!</td></tr>';
+        } else {
+            dueTbody.innerHTML = data.due.map(n => `
+                <tr>
+                    <td><strong>${formatDate(n.send_date)}</strong></td>
+                    <td><strong>${n.filing_name}</strong></td>
+                    <td>${formatDate(n.due_date)}</td>
+                    <td><code>${n.offset_days} days</code></td>
+                    <td><span class="badge badge-warning">${n.status}</span></td>
+                    <td>
+                        <button onclick="sendNotificationNow(${n.id}, this, ${clientId})" class="btn btn-sm btn-primary">✉️ Send Now</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // 2. Sent Reminders (Dispatch History) Table
+        const sentTbody = document.querySelector('#table-lookup-sent tbody');
+        if (data.history.length === 0) {
+            sentTbody.innerHTML = '<tr><td colspan="5" class="empty">No emails dispatched yet to this company.</td></tr>';
+        } else {
+            sentTbody.innerHTML = data.history.map(h => `
+                <tr>
+                    <td>${formatDateTime(h.sent_at)}</td>
+                    <td><code>${h.recipient}</code></td>
+                    <td><strong>${h.subject}</strong></td>
+                    <td><span class="badge badge-${h.status.toLowerCase()}">${h.status}</span></td>
+                    <td><span class="help">${h.status === 'Sent' ? (h.message_id || 'Sent successfully') : (h.error_details || 'Failed')}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // 3. Configured Filing Schedules Table
+        const schedTbody = document.querySelector('#table-lookup-schedules tbody');
+        if (data.schedules.length === 0) {
+            schedTbody.innerHTML = '<tr><td colspan="4" class="empty">No recurring filing schedules configured for this company.</td></tr>';
+        } else {
+            schedTbody.innerHTML = data.schedules.map(s => `
+                <tr>
+                    <td><strong>${s.filing_name}</strong></td>
+                    <td><span class="badge badge-info">${s.frequency}</span></td>
+                    <td>${formatDate(s.start_due_date)}</td>
+                    <td><span class="badge badge-${(s.status || 'Active').toLowerCase()}">${s.status || 'Active'}</span></td>
+                </tr>
+            `).join('');
+        }
+
+    } catch (err) {
+        showToast('Failed to load company activity: ' + err.message, 'danger');
+    }
+}
+
+/* -------------------------------------------------------------
+   Dashboard Quick Filter Controller
+   ------------------------------------------------------------- */
+function initDashboardSearch() {
+    const dashSearchInput = document.getElementById('input-dash-search-company');
+    const clearBtn = document.getElementById('btn-dash-clear-search');
+    const goLookupBtn = document.getElementById('btn-dash-go-lookup');
+
+    if (!dashSearchInput) return;
+
+    dashSearchInput.addEventListener('input', () => {
+        const query = dashSearchInput.value.trim().toLowerCase();
+        if (clearBtn) clearBtn.style.display = query ? 'inline-block' : 'none';
+
+        // Filter Upcoming Queue table
+        const upcomingRows = document.querySelectorAll('#table-upcoming tbody tr');
+        upcomingRows.forEach(row => {
+            if (row.classList.contains('empty') || row.classList.contains('loading')) return;
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(query) ? '' : 'none';
+        });
+
+        // Filter History table
+        const historyRows = document.querySelectorAll('#table-history tbody tr');
+        historyRows.forEach(row => {
+            if (row.classList.contains('empty') || row.classList.contains('loading')) return;
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(query) ? '' : 'none';
+        });
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            dashSearchInput.value = '';
+            clearBtn.style.display = 'none';
+            document.querySelectorAll('#table-upcoming tbody tr, #table-history tbody tr').forEach(r => r.style.display = '');
+        });
+    }
+
+    if (goLookupBtn) {
+        goLookupBtn.addEventListener('click', () => {
+            const query = dashSearchInput.value.trim().toLowerCase();
+            let matchedClient = null;
+            if (query && globalClients.length > 0) {
+                matchedClient = globalClients.find(c => {
+                    return (c.business_name || '').toLowerCase().includes(query) ||
+                           (c.name || '').toLowerCase().includes(query);
+                });
+            }
+            if (matchedClient) {
+                openCompanyLookup(matchedClient.id);
+            } else if (globalClients.length > 0) {
+                openCompanyLookup(globalClients[0].id);
+            } else {
+                document.querySelector('.nav-btn[data-view="company-lookup"]').click();
+            }
+        });
     }
 }

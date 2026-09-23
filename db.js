@@ -144,6 +144,9 @@ class SupabaseAdapter {
             if (/WHERE id = \?/i.test(cleanSql) && params.length > 0) {
                 list = list.filter(x => x.id === params[0]);
             }
+            if (/WHERE (r\.)?client_id = \?/i.test(cleanSql) && params.length > 0) {
+                list = list.filter(x => x.client_id === params[0]);
+            }
             if (/WHERE status = 'Active'/i.test(cleanSql)) {
                 list = list.filter(x => x.status === 'Active');
             }
@@ -171,6 +174,7 @@ class SupabaseAdapter {
                     id: n.id,
                     reminder_id: n.reminder_id,
                     reminder_type_id: rem.reminder_type_id || null,
+                    client_id: rem.client_id || cl.id || null,
                     frequency: rem.frequency || 'Annually',
                     reminder_type_code: rt.code || '',
                     due_date: n.current_due_date || n.due_date,
@@ -239,6 +243,7 @@ class SupabaseAdapter {
                 return {
                     id: h.id,
                     notification_id: notifId,
+                    client_id: client?.id || null,
                     recipient: h.recipient_email || h.recipient,
                     business_name: businessName,
                     client_name: clientName,

@@ -24,6 +24,9 @@
                 <button class="nav-btn" data-view="clients">
                     <span class="icon">👥</span> Client Registry
                 </button>
+                <button class="nav-btn" data-view="company-lookup">
+                    <span class="icon">🔍</span> Company Lookup
+                </button>
                 <button class="nav-btn" data-view="schedules">
                     <span class="icon">📅</span> Filing Schedules
                 </button>
@@ -94,6 +97,21 @@
                         <p>Checks filing dates and prepares reminders for your approval. No emails are sent automatically.</p>
                     </div>
                     <button id="btn-run-scheduler" class="btn btn-primary">Check for Due Reminders</button>
+                </div>
+
+                <!-- Company Quick Filter Bar on Dashboard -->
+                <div class="card company-search-card" style="margin-bottom: 25px; padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; background: linear-gradient(135deg, rgba(30, 41, 69, 0.75), rgba(20, 27, 45, 0.95)); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: var(--radius-md);">
+                    <div style="display: flex; align-items: center; gap: 14px; flex: 1; min-width: 280px;">
+                        <span style="font-size: 1.6rem;">🔍</span>
+                        <div style="flex: 1;">
+                            <label for="input-dash-search-company" style="display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 700;">Filter Activity by Company / Client</label>
+                            <input type="text" id="input-dash-search-company" placeholder="Search any company name (e.g. 1455175, WMB, Arjun)..." style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); padding: 8px 14px; border-radius: var(--radius-sm); font-size: 0.95rem;">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="btn-dash-clear-search" class="btn btn-secondary btn-sm" style="display: none;">Clear Filter</button>
+                        <button id="btn-dash-go-lookup" class="btn btn-primary btn-sm">🏢 Open Company Lookup &rarr;</button>
+                    </div>
                 </div>
 
                 <!-- Tables Split Grid -->
@@ -178,10 +196,11 @@
                                         <th>Business Name</th>
                                         <th>Fiscal Year End</th>
                                         <th>Schedules Configured</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr><td colspan="7" class="loading">Loading clients list...</td></tr>
+                                    <tr><td colspan="8" class="loading">Loading clients list...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -613,6 +632,166 @@
                         <div class="preview-iframe-wrapper">
                             <iframe id="quicksend-iframe"></iframe>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COMPANY LOOKUP VIEW -->
+            <section id="view-company-lookup" class="view-section">
+                <div class="view-header">
+                    <h1>🔍 Company Reminders & History Lookup</h1>
+                    <p>Search any company to inspect which reminders are currently due for filing and every historical email dispatched.</p>
+                </div>
+
+                <!-- Search & Selector Card -->
+                <div class="card" style="margin-bottom: 25px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; align-items: end;">
+                        <div class="form-group autocomplete-container" style="margin-bottom: 0;">
+                            <label for="lookup-search-input" style="font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+                                <span>🏢</span> Search Company Name or Client Profile
+                            </label>
+                            <input type="text" id="lookup-search-input" placeholder="Type company name, BN, or client name (e.g. 1455175, 1303220, WMB)..." autocomplete="off">
+                            <div id="lookup-autocomplete-list" class="autocomplete-dropdown" style="display: none;"></div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="lookup-client-select" style="font-weight: 600; margin-bottom: 8px;">Or Choose from Registry</label>
+                            <select id="lookup-client-select">
+                                <option value="">-- Select Registered Company --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Quick Suggestions Chips -->
+                    <div id="lookup-chips-container" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; align-items: center;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Quick Pick:</span>
+                        <!-- Dynamically populated chips -->
+                    </div>
+                </div>
+
+                <!-- Empty State before selection -->
+                <div id="lookup-empty-prompt" class="card" style="text-align: center; padding: 60px 20px; border: 1px dashed var(--border-color);">
+                    <div style="font-size: 3.5rem; margin-bottom: 15px;">🏢</div>
+                    <h3 style="color: var(--text-primary); margin-bottom: 10px; font-size: 1.3rem;">Search or Select a Company Above</h3>
+                    <p style="color: var(--text-secondary); max-width: 520px; margin: 0 auto; line-height: 1.6;">
+                        Select any registered client company to see which filing reminders are currently <strong>Due (Pending)</strong> and view the complete audit log of all emails <strong>Sent</strong> to that business.
+                    </p>
+                </div>
+
+                <!-- Active Company Details (Hidden until company selected) -->
+                <div id="lookup-company-details" style="display: none;">
+                    <!-- Company Profile Summary Card -->
+                    <div class="card" style="margin-bottom: 25px; border-left: 4px solid var(--color-primary); background: linear-gradient(135deg, rgba(20, 27, 45, 0.95), rgba(30, 41, 69, 0.8));">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                    <h2 id="lookup-comp-name" style="font-size: 1.65rem; color: #fff; font-family: var(--font-heading);">-</h2>
+                                    <span id="lookup-comp-badge" class="badge badge-sent">Registered Client</span>
+                                </div>
+                                <div style="display: flex; gap: 20px; flex-wrap: wrap; color: var(--text-secondary); font-size: 0.9rem;">
+                                    <span>👤 Contact: <strong id="lookup-comp-contact" style="color: var(--text-primary);">-</strong></span>
+                                    <span>✉️ Email: <span id="lookup-comp-email" style="color: var(--text-primary);">-</span></span>
+                                    <span>📞 Phone: <span id="lookup-comp-phone" style="color: var(--text-primary);">-</span></span>
+                                    <span>📅 Year End: <strong id="lookup-comp-yearend" style="color: #60a5fa;">-</strong></span>
+                                    <span id="lookup-comp-bn-wrapper" style="display: none;">🏛️ BN: <code id="lookup-comp-bn">-</code></span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                <div class="stat-pill" style="background: rgba(249, 115, 22, 0.12); border: 1px solid rgba(249, 115, 22, 0.35); padding: 10px 18px; border-radius: var(--radius-md); text-align: center;">
+                                    <div id="lookup-stat-due" style="font-size: 1.5rem; font-weight: 800; color: var(--color-warning);">0</div>
+                                    <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; font-weight: 600;">Reminders Due</div>
+                                </div>
+                                <div class="stat-pill" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); padding: 10px 18px; border-radius: var(--radius-md); text-align: center;">
+                                    <div id="lookup-stat-sent" style="font-size: 1.5rem; font-weight: 800; color: var(--color-success);">0</div>
+                                    <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; font-weight: 600;">Emails Sent</div>
+                                </div>
+                                <div class="stat-pill" style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.35); padding: 10px 18px; border-radius: var(--radius-md); text-align: center;">
+                                    <div id="lookup-stat-schedules" style="font-size: 1.5rem; font-weight: 800; color: var(--color-primary);">0</div>
+                                    <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; font-weight: 600;">Schedules</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TWO MAIN SECTIONS: Reminders Due & Reminders Sent -->
+                    <div style="display: flex; flex-direction: column; gap: 25px;">
+                        
+                        <!-- 1. REMINDERS DUE -->
+                        <div class="card table-card">
+                            <div class="card-header-flex">
+                                <h3 style="display: flex; align-items: center; gap: 10px;">
+                                    <span>⏳</span> Reminders Currently Due for this Company
+                                </h3>
+                                <span id="lookup-due-badge" class="badge badge-warning">0 Pending</span>
+                            </div>
+                            <div class="table-container">
+                                <table id="table-lookup-due">
+                                    <thead>
+                                        <tr>
+                                            <th>Target Send Date</th>
+                                            <th>Filing Type</th>
+                                            <th>Filing Due Date</th>
+                                            <th>Days Before Due</th>
+                                            <th>Status</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="6" class="loading">Loading due reminders...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 2. REMINDERS SENT / DISPATCH HISTORY -->
+                        <div class="card table-card">
+                            <div class="card-header-flex">
+                                <h3 style="display: flex; align-items: center; gap: 10px;">
+                                    <span>📜</span> Emails Sent to this Company (Dispatch History)
+                                </h3>
+                                <span id="lookup-sent-badge" class="badge badge-sent">0 Dispatched</span>
+                            </div>
+                            <div class="table-container">
+                                <table id="table-lookup-sent">
+                                    <thead>
+                                        <tr>
+                                            <th>Sent At (UTC)</th>
+                                            <th>Recipient</th>
+                                            <th>Subject</th>
+                                            <th>Status</th>
+                                            <th>Message ID / Delivery Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="5" class="loading">Loading sent history...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 3. CONFIGURED FILING SCHEDULES -->
+                        <div class="card table-card">
+                            <div class="card-header-flex">
+                                <h3 style="display: flex; align-items: center; gap: 10px;">
+                                    <span>📅</span> Configured Filing Schedules for this Company
+                                </h3>
+                            </div>
+                            <div class="table-container">
+                                <table id="table-lookup-schedules">
+                                    <thead>
+                                        <tr>
+                                            <th>Filing Type</th>
+                                            <th>Frequency</th>
+                                            <th>First Due Date</th>
+                                            <th>Schedule Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="4" class="loading">Loading schedules...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </section>

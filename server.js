@@ -214,6 +214,51 @@ app.get('/api/clients', async (req, res) => {
     }
 });
 
+app.get('/api/clients/:id/activity', async (req, res) => {
+    const { id } = req.params;
+    const clientId = parseInt(id, 10);
+    try {
+        const db = await getDb();
+        const client = await db.get('SELECT * FROM clients WHERE id = ?', [clientId]);
+        if (!client) {
+            return res.status(404).json({ error: 'Client not found.' });
+        }
+
+        const allReminders = await db.all('SELECT * FROM reminders');
+        const schedules = allReminders.filter(r => r.client_id === clientId);
+
+        const allNotifs = await db.all('SELECT * FROM notifications');
+        const notifications = allNotifs.filter(n => {
+            if (n.client_id === clientId) return true;
+            return schedules.some(s => s.id === n.reminder_id);
+        });
+
+        const allHistory = await db.all('SELECT * FROM email_history');
+        const history = allHistory.filter(h => {
+            if (h.client_id && h.client_id === clientId) return true;
+            if (client.business_name && h.business_name && h.business_name.trim().toLowerCase() === client.business_name.trim().toLowerCase()) return true;
+            if (client.name && h.client_name && h.client_name.trim().toLowerCase() === client.name.trim().toLowerCase()) return true;
+            if (!h.client_id && !h.business_name && client.email && h.recipient && h.recipient.toLowerCase() === client.email.toLowerCase()) return true;
+            return false;
+        });
+
+        const due = notifications.filter(n => n.status === 'Pending');
+
+        res.json({
+            client,
+            schedules,
+            due,
+            all_notifications: notifications,
+            history,
+            totalDue: due.length,
+            totalSent: history.length,
+            totalSchedules: schedules.length
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Date Calculation Helpers for Auto-Schedules
 function calculateNextAnniversaryDate(anniversaryStr) {
     const months = {
