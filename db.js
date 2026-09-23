@@ -641,13 +641,16 @@ const COMMON_HTML_TEMPLATE = `<div style="max-width: 620px; margin: 0 auto; back
 
 </div>`;
 
+let isDbInitialized = false;
+
 async function initDb() {
+    if (isDbInitialized) return;
     const db = await getDb();
     
     // Check if we need to migrate/re-seed to the new Raman Tax common template format
     let hasGst = false;
     try {
-        const row = await db.get("SELECT id FROM reminder_types WHERE code = 'GST_HST'");
+        const row = await db.get("SELECT id FROM reminder_types WHERE code = 'GST_HST' OR code = 'gst_return'");
         hasGst = !!row;
     } catch (err) {
         // Table doesn't exist yet, we will seed it
@@ -748,6 +751,7 @@ async function initDb() {
     `);
     
     await seedDb(db);
+    isDbInitialized = true;
 }
 
 async function seedDb(db) {
