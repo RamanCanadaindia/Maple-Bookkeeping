@@ -187,14 +187,18 @@ class SupabaseAdapter {
                 };
             });
 
-            if (/WHERE n.status = 'Pending'/i.test(cleanSql)) {
+            if (/WHERE\s+(n\.)?status\s*=\s*['"]Pending['"]/i.test(cleanSql)) {
                 list = list.filter(x => x.status === 'Pending');
+            }
+            if (/WHERE\s+(n\.)?id\s*=\s*\?/i.test(cleanSql) && params.length > 0) {
+                const targetId = parseInt(params[0], 10);
+                list = list.filter(x => x.id === targetId);
             }
             if (/AND n.send_date <= \?/i.test(cleanSql) && params.length > 0) {
                 list = list.filter(x => x.send_date <= params[params.length - 1]);
             }
 
-            return list;
+            return isCount ? [{ count: list.length }] : list;
         }
 
 
@@ -449,30 +453,90 @@ class SupabaseAdapter {
 
         // Update Notification Status
         if (/UPDATE notifications SET status/i.test(cleanSql)) {
-            if (params.length === 2) {
-                const [status, id] = params;
-                await this.client.from('notifications').update({ status }).eq('id', id);
+            let status = null;
+            let last_error = null;
+            let targetId = null;
+
+            if (/status\s*=\s*['"]Sent['"]/i.test(cleanSql)) {
+                status = 'Sent';
+                targetId = parseInt(params[params.length - 1], 10);
+            } else if (/status\s*=\s*['"]Failed['"]/i.test(cleanSql)) {
+                status = 'Failed';
+                if (params.length === 1) {
+                    targetId = parseInt(params[0], 10);
+                } else if (params.length >= 2) {
+                    last_error = params[0];
+                    targetId = parseInt(params[params.length - 1], 10);
+                }
+            } else if (/status\s*=\s*\?/i.test(cleanSql)) {
+                status = params[0];
+                targetId = parseInt(params[params.length - 1], 10);
+            } else if (params.length === 2) {
+                status = params[0];
+                targetId = parseInt(params[1], 10);
             } else if (params.length === 3) {
-                const [st, err, nId] = params;
-                await this.client.from('notifications').update({ status: st, last_error: err }).eq('id', nId);
+                status = params[0];
+                last_error = params[1];
+                targetId = parseInt(params[2], 10);
+            }
+
+            const updateData = {};
+            if (status) updateData.status = status;
+            if (last_error !== null) updateData.last_error = last_error;
+
+            if (targetId) {
+                const { error } = await this.client.from('notifications').update(updateData).eq('id', targetId);
+                if (error) console.error('Error updating notification status:', error.message);
             }
             return { changes: 1 };
         }
 
         // Insert Email History
         if (/INSERT INTO email_history/i.test(cleanSql) || /INSERT INTO email_histories/i.test(cleanSql)) {
-            const [notification_id, recipient, subject, sent_at, status, extra] = params;
-            const isSuccess = status === 'Sent';
+            let notification_id = null;
+            let recipient = null;
+            let subject = null;
+            let sent_at = new Date().toISOString();
+            let status = 'Sent';
+            let message_id = null;
+            let error_details = null;
+
+            const isHardcodedSent = /VALUES\s*\([^)]*['"]Sent['"]/i.test(cleanSql);
+            const isHardcodedFailed = /VALUES\s*\([^)]*['"]Failed['"]/i.test(cleanSql);
+
+            if (isHardcodedSent) {
+                status = 'Sent';
+                if (params.length === 5) {
+                    [notification_id, recipient, subject, sent_at, message_id] = params;
+                } else if (params.length === 4) {
+                    [recipient, subject, sent_at, message_id] = params;
+                }
+            } else if (isHardcodedFailed) {
+                status = 'Failed';
+                if (params.length === 5) {
+                    [notification_id, recipient, subject, sent_at, error_details] = params;
+                } else if (params.length === 4) {
+                    [recipient, subject, sent_at, error_details] = params;
+                }
+            } else if (params.length >= 6) {
+                let extra;
+                [notification_id, recipient, subject, sent_at, status, extra] = params;
+                if (status === 'Sent') message_id = extra;
+                else error_details = extra;
+            } else if (params.length === 5) {
+                [notification_id, recipient, subject, sent_at, message_id] = params;
+            }
+
             const { data, error } = await this.client
                 .from('email_histories')
                 .insert({
-                    reminder_id: notification_id || null,
+                    reminder_id: notification_id ? parseInt(notification_id, 10) : null,
                     recipient_email: recipient,
                     subject,
                     sent_at,
                     status,
-                    gmail_message_id: isSuccess ? extra : null,
-                    error_message: !isSuccess ? extra : null
+                    gmail_message_id: message_id,
+                    error_message: error_details
                 })
                 .select();
             if (error) console.error('Insert email history error:', error.message);
