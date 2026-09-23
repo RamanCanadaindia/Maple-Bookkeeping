@@ -369,8 +369,14 @@ function resetEditClientForm() {
 async function loadClientsData() {
     try {
         const res = await fetch(`${API_BASE}/api/clients`);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || ('HTTP ' + res.status));
+        }
         const data = await res.json();
+        if (!Array.isArray(data)) {
+            throw new Error(data && data.error ? data.error : 'Invalid response from server');
+        }
         globalClients = data;
         
         // 1. Render Table
@@ -386,20 +392,26 @@ async function loadClientsData() {
                     <td>${c.phone || '-'}</td>
                     <td>${c.business_name || '-'}</td>
                     <td>${c.fiscal_year_end ? `<span class="badge badge-info">${c.fiscal_year_end}</span>` : '-'}</td>
-                    <td><span class="badge badge-active">${c.reminders_count} active</span></td>
+                    <td><span class="badge badge-active">${c.reminders_count || 0} active</span></td>
                 </tr>
             `).join('');
         }
         
         // 2. Populate Dropdowns
         const editSelect = document.getElementById('select-edit-client');
-        const defaultOption = '<option value="">-- Choose Client --</option>';
-        editSelect.innerHTML = defaultOption + data.map(c => `
-            <option value="${c.id}">${c.name} (${c.business_name || 'No Business'})</option>
-        `).join('');
+        if (editSelect) {
+            const defaultOption = '<option value="">-- Choose Client --</option>';
+            editSelect.innerHTML = defaultOption + data.map(c => `
+                <option value="${c.id}">${c.name} (${c.business_name || 'No Business'})</option>
+            `).join('');
+        }
         
     } catch (err) {
         showToast('Failed to load client profiles: ' + err.message, 'danger');
+        const tbody = document.querySelector('#table-clients tbody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color: #ef4444;">⚠️ Failed to load clients: ${err.message}</td></tr>`;
+        }
     }
 }
 
@@ -444,44 +456,65 @@ async function loadSchedulesData() {
     try {
         // Fetch schedules
         const res = await fetch(`${API_BASE}/api/schedules`);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || ('HTTP ' + res.status));
+        }
         const schedules = await res.json();
-        
-        // Fetch clients & types if not loaded
-        if (globalClients.length === 0) {
-            const resClients = await fetch(`${API_BASE}/api/clients`);
-            globalClients = await resClients.json();
+        if (!Array.isArray(schedules)) {
+            throw new Error(schedules && schedules.error ? schedules.error : 'Invalid schedules response');
         }
         
-        const resTypes = await fetch(`${API_BASE}/api/reminder-types`);
-        globalReminderTypes = await resTypes.json();
+        // Fetch clients & types if not loaded
+        if (!Array.isArray(globalClients) || globalClients.length === 0) {
+            try {
+                const resClients = await fetch(`${API_BASE}/api/clients`);
+                if (resClients.ok) {
+                    const cData = await resClients.json();
+                    if (Array.isArray(cData)) globalClients = cData;
+                }
+            } catch (_) {}
+        }
+        
+        try {
+            const resTypes = await fetch(`${API_BASE}/api/reminder-types`);
+            if (resTypes.ok) {
+                const tData = await resTypes.json();
+                if (Array.isArray(tData)) globalReminderTypes = tData;
+            }
+        } catch (_) {}
         
         // 1. Populate Dropdowns in Configure Form
         const clientSelect = document.getElementById('schedule-client');
-        clientSelect.innerHTML = '<option value="">-- Choose Client --</option>' + globalClients.map(c => `
-            <option value="${c.id}">${c.name} (${c.business_name || 'No Business'})</option>
-        `).join('');
+        if (clientSelect) {
+            clientSelect.innerHTML = '<option value="">-- Choose Client --</option>' + (globalClients || []).map(c => `
+                <option value="${c.id}">${c.name} (${c.business_name || 'No Business'})</option>
+            `).join('');
+        }
         
         const typeSelect = document.getElementById('schedule-type');
-        typeSelect.innerHTML = '<option value="">-- Choose Filing Type --</option>' + globalReminderTypes.map(t => `
-            <option value="${t.id}">${t.name}</option>
-        `).join('');
+        if (typeSelect) {
+            typeSelect.innerHTML = '<option value="">-- Choose Filing Type --</option>' + (globalReminderTypes || []).map(t => `
+                <option value="${t.id}">${t.name}</option>
+            `).join('');
+        }
         
         // 2. Render schedules list table
         const tbody = document.querySelector('#table-schedules tbody');
+        if (!tbody) return;
         if (schedules.length === 0) {
             tbody.innerHTML = '<tr><td colspan="9" class="empty">No schedules configured yet. Go to "Configure Schedule" tab.</td></tr>';
         } else {
             tbody.innerHTML = schedules.map((r, idx) => `
                 <tr>
                     <td>${idx + 1}</td>
-                    <td><strong>${r.client_name}</strong></td>
+                    <td><strong>${r.client_name || '-'}</strong></td>
                     <td>${r.business_name || '-'}</td>
-                    <td>${r.filing_name}</td>
+                    <td>${r.filing_name || '-'}</td>
                     <td><code>${formatDate(r.start_due_date)}</code></td>
-                    <td>${r.frequency}</td>
-                    <td><span class="badge badge-pending">${r.pending_count} pending</span></td>
-                    <td><span class="badge badge-${r.status.toLowerCase()}">${r.status}</span></td>
+                    <td>${r.frequency || 'Annually'}</td>
+                    <td><span class="badge badge-pending">${r.pending_count || 0} pending</span></td>
+                    <td><span class="badge badge-${(r.status || 'Active').toLowerCase()}">${r.status || 'Active'}</span></td>
                     <td>
                         <div class="btn-group">
                             <button onclick="toggleScheduleStatus(${r.id}, '${r.status === 'Active' ? 'Paused' : 'Active'}')" class="btn btn-sm btn-secondary">
@@ -495,6 +528,10 @@ async function loadSchedulesData() {
         }
     } catch (err) {
         showToast('Failed to load schedules: ' + err.message, 'danger');
+        const tbody = document.querySelector('#table-schedules tbody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="9" class="empty" style="color: #ef4444;">⚠️ Failed to load schedules: ${err.message}</td></tr>`;
+        }
     }
 }
 
@@ -596,16 +633,27 @@ function initTemplates() {
 async function loadTemplatesData() {
     try {
         const resTypes = await fetch(`${API_BASE}/api/reminder-types`);
+        if (!resTypes.ok) {
+            const errData = await resTypes.json().catch(() => ({}));
+            throw new Error(errData.error || ('HTTP ' + resTypes.status));
+        }
         const types = await resTypes.json();
+        if (!Array.isArray(types)) {
+            throw new Error(types && types.error ? types.error : 'Invalid reminder types response');
+        }
         globalReminderTypes = types;
         
         const typeSelect = document.getElementById('select-template-type');
-        typeSelect.innerHTML = types.map(t => `
-            <option value="${t.id}">${t.name}</option>
-        `).join('');
-        
-        // Trigger select change to load the first template
-        typeSelect.dispatchEvent(new Event('change'));
+        if (typeSelect) {
+            typeSelect.innerHTML = types.map(t => `
+                <option value="${t.id}">${t.name}</option>
+            `).join('');
+            
+            // Trigger select change to load the first template
+            if (types.length > 0) {
+                typeSelect.dispatchEvent(new Event('change'));
+            }
+        }
     } catch (err) {
         showToast('Failed to load template types: ' + err.message, 'danger');
     }

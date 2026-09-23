@@ -112,6 +112,14 @@ class SupabaseAdapter {
             const { data: rts } = await this.client.from('reminder_types').select('*');
             const rtMap = new Map((rts || []).map(t => [t.id, t]));
 
+            const { data: notifs } = await this.client.from('notifications').select('reminder_id, status');
+            const pendingMap = new Map();
+            (notifs || []).forEach(n => {
+                if (n.status === 'Pending') {
+                    pendingMap.set(n.reminder_id, (pendingMap.get(n.reminder_id) || 0) + 1);
+                }
+            });
+
             let list = (rems || []).map(r => {
                 const cl = clMap.get(r.client_id) || {};
                 const rt = rtMap.get(r.reminder_type_id) || {};
@@ -125,7 +133,8 @@ class SupabaseAdapter {
                     client_email: cl.email || '',
                     client_name: cl.name || '',
                     business_name: cl.business_name || '',
-                    filing_name: rt.name || ''
+                    filing_name: rt.name || '',
+                    pending_count: pendingMap.get(r.id) || 0
                 };
             });
 
@@ -232,6 +241,28 @@ class SupabaseAdapter {
             return { lastID: 1, changes: 1 };
         }
 
+        // Settings insert
+        if (/INSERT INTO settings/i.test(cleanSql) || /INSERT INTO reminder_settings/i.test(cleanSql)) {
+            const [key, fromEmail] = params;
+            const { data, error } = await this.client
+                .from('reminder_settings')
+                .insert({ resend_api_key: key || null, resend_from_email: fromEmail || 'reminders@ramanfinancialservices.ca' })
+                .select();
+            if (error) throw new Error(error.message);
+            return { lastID: data?.[0]?.id || 1, changes: 1 };
+        }
+
+        // Reminder Types insert
+        if (/INSERT INTO reminder_types/i.test(cleanSql)) {
+            const [name, code, default_offsets] = params;
+            const { data, error } = await this.client
+                .from('reminder_types')
+                .insert({ name, code, default_days_before: default_offsets || '30,14,7,2' })
+                .select();
+            if (error) throw new Error(error.message);
+            return { lastID: data?.[0]?.id || Date.now(), changes: 1 };
+        }
+
         // Insert Client
         if (/INSERT INTO clients/i.test(cleanSql)) {
             const [name, email, phone, business_name, fiscal_year_end] = params;
@@ -272,6 +303,17 @@ class SupabaseAdapter {
         if (/DELETE FROM clients/i.test(cleanSql)) {
             const [id] = params;
             const { error } = await this.client.from('clients').delete().eq('id', id);
+            if (error) throw new Error(error.message);
+            return { lastID: id, changes: 1 };
+        }
+
+        // Keep one configured reminder offset per filing type.
+        if (/UPDATE reminder_types SET default_offsets/i.test(cleanSql)) {
+            const [offset, id] = params;
+            const { error } = await this.client
+                .from('reminder_types')
+                .update({ default_days_before: String(offset) })
+                .eq('id', id);
             if (error) throw new Error(error.message);
             return { lastID: id, changes: 1 };
         }
@@ -723,24 +765,24 @@ async function seedDb(db) {
     // Seed Reminder Types
     const typeCount = await db.get('SELECT COUNT(*) as count FROM reminder_types');
     if (typeCount.count === 0) {
-        // 1. GST/HST Return (Offsets: 30, 14, 7, 3, 0, -1)
+        // One reminder per filing schedule.
         const r1 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
-            'GST/HST Return', 'GST_HST', '30,14,7,3,0,-1');
+            'GST/HST Return', 'GST_HST', '30');
         const r1_id = r1.lastID;
         
-        // 2. Payroll (Offsets: 30, 7, 3, 0, -1)
+        // Payroll: one reminder 7 days before the due date.
         const r2 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
-            'Payroll Remittance', 'PAYROLL', '30,7,3,0,-1');
+            'Payroll Remittance', 'PAYROLL', '7');
         const r2_id = r2.lastID;
         
-        // 3. BC Annual Report (Offsets: 30, 14, 7, 0, -1)
+        // BC Annual Report: one reminder 30 days before the due date.
         const r3 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
-            'BC Annual Report', 'BC_ANNUAL', '30,14,7,0,-1');
+            'BC Annual Report', 'BC_ANNUAL', '30');
         const r3_id = r3.lastID;
 
-        // 4. Corporation Tax Return (T2) (Offsets: 30, 14, 7, 0, -1)
+        // Corporation Tax Return: one reminder 60 days before the due date.
         const r4 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
-            'Corporation Tax Return (T2)', 'CORP_TAX_T2', '30,14,7,0,-1');
+            'Corporation Tax Return (T2)', 'CORP_TAX_T2', '60');
         const r4_id = r4.lastID;
         
         // Templates Seeding using Common Premium HTML Layout
@@ -778,8 +820,21 @@ async function seedDb(db) {
         );
     }
     
-    // Migration: keep every template subject concise and safe for single-line inputs.
+    // Migration: use one reminder offset per filing type.
     const reminderTypes = await db.all('SELECT id, code FROM reminder_types');
+    const singleOffsets = {
+        GST_HST: '30',
+        PAYROLL: '7',
+        BC_ANNUAL: '30',
+        CORP_TAX_T2: '60'
+    };
+    for (const rt of reminderTypes) {
+        if (singleOffsets[rt.code]) {
+            await db.run('UPDATE reminder_types SET default_offsets = ? WHERE id = ?', [singleOffsets[rt.code], rt.id]);
+        }
+    }
+
+    // Migration: keep every template subject concise and safe for single-line inputs.
     const conciseSubjects = {
         GST_HST: 'Reminder: GST/HST Return Due {{DueDate}}',
         PAYROLL: 'Reminder: Payroll Remittance Due {{DueDate}}',

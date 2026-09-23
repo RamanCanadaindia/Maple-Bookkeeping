@@ -14,8 +14,8 @@
     }
   ],
   "env": {
-    "SUPABASE_URL": "https://hzyntzswxdqlhmhxtcov.supabase.co",
-    "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eW50enN3eGRxbGhtaHh0Y292Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTQ2MTIwNSwiZXhwIjoyMTAxMDM3MjA1fQ.LEZH4nDfzBaDDl7vAsQSRVgpvVpEiYTPPPP-YyQo9XY",
-    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6eW50enN3eGRxbGhtaHh0Y292Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NjEyMDUsImV4cCI6MjEwMTAzNzIwNX0.4-zdMgc_qAqOnQNVlNxn0XgM6TwBKdznhwE8jzDySEE"
+    "SUPABASE_URL": "https://btnwdomxfljzhqpnlglm.supabase.co",
+    "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ0bndkb214ZmxqemhxcG5sZ2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDY5MDgwNSwiZXhwIjoyMTAwMjY2ODA1fQ.KFTkyA7sG6_NLdOBlBcp067nnobS_0PvpDdSLJ2_B9M",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ0bndkb214ZmxqemhxcG5sZ2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2OTA4MDUsImV4cCI6MjEwMDI2NjgwNX0.iZUtW1nhyO6xy7xx3Gt-wm6j82T5Nxd2pgQWn9vk2iI"
   }
 }

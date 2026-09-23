@@ -315,6 +315,14 @@ function calculatePayrollDueDate() {
     return `${y}-${m}-${d}`;
 }
 
+function getSingleReminderOffset(defaultOffsets, fallback = 30) {
+    const offsets = String(defaultOffsets || '')
+        .split(',')
+        .map(value => parseInt(value.trim(), 10))
+        .filter(value => !Number.isNaN(value));
+    return offsets.length > 0 ? Math.max(...offsets) : fallback;
+}
+
 app.post('/api/clients', async (req, res) => {
     const { name, email, phone, business_name, business_number, corporation_number, fiscal_year_end, gst_reporting_period, payroll_frequency, payroll_remitter_type, bc_anniversary_date } = req.body;
     if (!name || !email) {
@@ -342,7 +350,7 @@ app.post('/api/clients', async (req, res) => {
 
         // 1. GST/HST Schedule
         if (gst_reporting_period && gst_reporting_period !== 'None') {
-            const gstType = reminderTypes.find(t => t.code === 'GST_HST');
+            const gstType = reminderTypes.find(t => t.code === 'GST_HST' || t.code === 'gst_return' || (t.name && t.name.toLowerCase().includes('gst')));
             if (gstType) {
                 const dueDate = calculateGSTHSTDueDate(gst_reporting_period, fiscal_year_end);
                 const schedResult = await db.run(
@@ -352,20 +360,18 @@ app.post('/api/clients', async (req, res) => {
                 const reminderId = schedResult.lastID;
                 
                 // Pre-generate GST/HST notifications
-                const offsets = gstType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
-                for (const offset of offsets) {
-                    const sendDate = addDays(dueDate, -offset);
-                    await db.run(
-                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
-                        [reminderId, dueDate, offset, sendDate, email.trim()]
-                    );
-                }
+                const offset = getSingleReminderOffset(gstType.default_offsets, 30);
+                const sendDate = addDays(dueDate, -offset);
+                await db.run(
+                    `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                    [reminderId, dueDate, offset, sendDate, email.trim()]
+                );
             }
         }
 
         // 2. Payroll Schedule
         if (payroll_frequency && payroll_frequency !== 'None') {
-            const payrollType = reminderTypes.find(t => t.code === 'PAYROLL');
+            const payrollType = reminderTypes.find(t => t.code === 'PAYROLL' || t.code === 'payroll_remittance' || (t.name && t.name.toLowerCase().includes('payroll')));
             if (payrollType) {
                 const dueDate = calculatePayrollDueDate();
                 const schedResult = await db.run(
@@ -375,20 +381,18 @@ app.post('/api/clients', async (req, res) => {
                 const reminderId = schedResult.lastID;
                 
                 // Pre-generate Payroll notifications
-                const offsets = payrollType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
-                for (const offset of offsets) {
-                    const sendDate = addDays(dueDate, -offset);
-                    await db.run(
-                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
-                        [reminderId, dueDate, offset, sendDate, email.trim()]
-                    );
-                }
+                const offset = getSingleReminderOffset(payrollType.default_offsets, 7);
+                const sendDate = addDays(dueDate, -offset);
+                await db.run(
+                    `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                    [reminderId, dueDate, offset, sendDate, email.trim()]
+                );
             }
         }
 
         // 3. BC Annual Schedule
         if (bc_anniversary_date && bc_anniversary_date !== 'None') {
-            const bcType = reminderTypes.find(t => t.code === 'BC_ANNUAL');
+            const bcType = reminderTypes.find(t => t.code === 'BC_ANNUAL' || t.code === 'annual_report' || (t.name && t.name.toLowerCase().includes('annual')));
             if (bcType) {
                 const dueDate = calculateNextAnniversaryDate(bc_anniversary_date);
                 const schedResult = await db.run(
@@ -398,20 +402,18 @@ app.post('/api/clients', async (req, res) => {
                 const reminderId = schedResult.lastID;
                 
                 // Pre-generate BC Annual notifications
-                const offsets = bcType.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
-                for (const offset of offsets) {
-                    const sendDate = addDays(dueDate, -offset);
-                    await db.run(
-                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
-                        [reminderId, dueDate, offset, sendDate, email.trim()]
-                    );
-                }
+                const offset = getSingleReminderOffset(bcType.default_offsets, 30);
+                const sendDate = addDays(dueDate, -offset);
+                await db.run(
+                    `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                    [reminderId, dueDate, offset, sendDate, email.trim()]
+                );
             }
         }
 
         // 4. Corporation Tax (T2) Schedule
         if (fiscal_year_end && fiscal_year_end !== 'None' && fiscal_year_end !== '') {
-            const t2Type = reminderTypes.find(t => t.code === 'CORP_TAX_T2');
+            const t2Type = reminderTypes.find(t => t.code === 'CORP_TAX_T2' || t.code === 'corporate_tax_filing' || (t.name && t.name.toLowerCase().includes('corporate')));
             if (t2Type) {
                 const dueDate = calculateNextT2DueDate(fiscal_year_end);
                 const schedResult = await db.run(
@@ -421,14 +423,12 @@ app.post('/api/clients', async (req, res) => {
                 const reminderId = schedResult.lastID;
                 
                 // Pre-generate T2 notifications
-                const offsets = t2Type.default_offsets.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
-                for (const offset of offsets) {
-                    const sendDate = addDays(dueDate, -offset);
-                    await db.run(
-                        `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
-                        [reminderId, dueDate, offset, sendDate, email.trim()]
-                    );
-                }
+                const offset = getSingleReminderOffset(t2Type.default_offsets, 60);
+                const sendDate = addDays(dueDate, -offset);
+                await db.run(
+                    `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                    [reminderId, dueDate, offset, sendDate, email.trim()]
+                );
             }
         }
 

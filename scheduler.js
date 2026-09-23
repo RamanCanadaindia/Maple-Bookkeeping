@@ -56,26 +56,27 @@ async function generateNotifications(db, reminder) {
     const offsets = type.default_offsets.split(',')
         .map(x => parseInt(x.trim(), 10))
         .filter(x => !isNaN(x));
+
+    // One approval item per filing and due date. Keep the earliest notice
+    // (largest positive offset) so there is enough time to review it.
+    const offset = offsets.length > 0 ? Math.max(...offsets) : 30;
         
     let generatedCount = 0;
-    
-    for (const offset of offsets) {
-        // Check if already exists
-        const exists = await db.get(
-            `SELECT id FROM notifications 
-             WHERE reminder_id = ? AND due_date = ? AND offset_days = ?`,
-            [reminder.id, reminder.start_due_date, offset]
+
+    const exists = await db.get(
+        `SELECT id FROM notifications 
+         WHERE reminder_id = ? AND due_date = ?`,
+        [reminder.id, reminder.start_due_date]
+    );
+
+    if (!exists) {
+        const sendDate = addDays(reminder.start_due_date, -offset);
+        await db.run(
+            `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status)
+             VALUES (?, ?, ?, ?, ?, 'Pending')`,
+            [reminder.id, reminder.start_due_date, offset, sendDate, reminder.client_email]
         );
-        
-        if (!exists) {
-            const sendDate = addDays(reminder.start_due_date, -offset);
-            await db.run(
-                `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status)
-                 VALUES (?, ?, ?, ?, ?, 'Pending')`,
-                [reminder.id, reminder.start_due_date, offset, sendDate, reminder.client_email]
-            );
-            generatedCount++;
-        }
+        generatedCount++;
     }
     
     return generatedCount;
