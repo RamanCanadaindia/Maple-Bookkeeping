@@ -1,4 +1,32 @@
 const express = require('express');
+const crypto = require('crypto');
+
+const AUTH_SECRET = process.env.AUTH_SECRET || 'raman-reminder-engine-auth-secret-key-2026';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Raman12345';
+
+function generateToken() {
+    const timestamp = Date.now();
+    const data = `admin:${timestamp}`;
+    const signature = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('hex');
+    return Buffer.from(`${data}:${signature}`).toString('base64');
+}
+
+function verifyToken(token) {
+    if (!token) return false;
+    try {
+        const decoded = Buffer.from(token, 'base64').toString('utf8');
+        const parts = decoded.split(':');
+        if (parts.length !== 3) return false;
+        const [user, tsStr, signature] = parts;
+        const timestamp = parseInt(tsStr, 10);
+        // Valid for 30 days
+        if (Date.now() - timestamp > 30 * 24 * 60 * 60 * 1000) return false;
+        const expectedSig = crypto.createHmac('sha256', AUTH_SECRET).update(`${user}:${timestamp}`).digest('hex');
+        return signature === expectedSig;
+    } catch (e) {
+        return false;
+    }
+}
 const cors = require('cors');
 const path = require('path');
 const { getDb, initDb } = require('./db');
@@ -27,6 +55,47 @@ app.use(async (req, res, next) => {
         console.error('DB Init Middleware Error:', err);
         next();
     }
+});
+
+// Auth: Login Endpoint
+app.post('/api/auth/login', (req, res) => {
+    const { password } = req.body;
+    if (!password) {
+        return res.status(400).json({ error: 'Password is required.' });
+    }
+    const targetPassword = process.env.DASHBOARD_PASSWORD || 'Raman12345';
+    if (password === targetPassword) {
+        const token = generateToken();
+        return res.json({ success: true, token });
+    } else {
+        return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+    }
+});
+
+// Auth: Status Check Endpoint
+app.get('/api/auth/check', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (verifyToken(token)) {
+        return res.json({ authenticated: true });
+    }
+    return res.status(401).json({ authenticated: false, error: 'Unauthorized.' });
+});
+
+// Auth Middleware protecting all other /api/* routes
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) {
+        return next();
+    }
+    if (req.path === '/api/auth/login' || req.path === '/api/auth/check') {
+        return next();
+    }
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (verifyToken(token)) {
+        return next();
+    }
+    return res.status(401).json({ error: 'Unauthorized: Invalid or expired password session. Please enter password.' });
 });
 
 // Start local server if not running on Vercel

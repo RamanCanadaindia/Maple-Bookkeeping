@@ -10,7 +10,29 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
+    <!-- Authentication Lock Screen -->
+    <div id="screen-login">
+        <div class="login-card">
+            <div class="login-logo-badge">📅</div>
+            <h1 class="login-title">Reminder Engine</h1>
+            <p class="login-sub">Raman Financial Services &bull; Filing Portal<br>Enter your password to unlock the dashboard.</p>
+            
+            <form id="form-login">
+                <div class="login-error-msg" id="login-error"></div>
+                <div class="login-input-group">
+                    <input type="password" id="input-login-password" required placeholder="Enter password..." autocomplete="current-password" autofocus>
+                    <button type="button" id="btn-toggle-password" class="login-eye-btn" title="Toggle visibility">👁️</button>
+                </div>
+                <button type="submit" id="btn-login-submit" class="btn-login-submit">Unlock Dashboard 🔓</button>
+            </form>
+
+            <div class="login-footer-hint">
+                <span>🔒</span> Protected &bull; Session auto-locks when signed out
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container" id="app-container" style="display: none;">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -42,7 +64,10 @@
             </nav>
             <div class="sidebar-footer">
                 <p>Standalone Reminder Service v1.0</p>
-                <p class="sub">Built with Node.js & SQLite</p>
+                <p class="sub">Raman Financial Services</p>
+                <button id="btn-sidebar-logout" class="btn-sidebar-logout" title="Lock session">
+                    <span>🔒</span> Lock Session
+                </button>
             </div>
         </aside>
 

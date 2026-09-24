@@ -1,6 +1,44 @@
 // Global API URL prefix
 const API_BASE = '';
 
+// Authentication Token Management
+function getAuthToken() {
+    return localStorage.getItem('reminder_auth_token');
+}
+
+function setAuthToken(token) {
+    localStorage.setItem('reminder_auth_token', token);
+}
+
+function removeAuthToken() {
+    localStorage.removeItem('reminder_auth_token');
+}
+
+// Global fetch interceptor to attach Authorization header and handle 401
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    let [resource, config] = args;
+    config = config || {};
+    config.headers = config.headers || {};
+
+    const token = getAuthToken();
+    if (token) {
+        if (config.headers instanceof Headers) {
+            config.headers.set('Authorization', `Bearer ${token}`);
+        } else if (Array.isArray(config.headers)) {
+            config.headers.push(['Authorization', `Bearer ${token}`]);
+        } else {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+    }
+
+    const response = await originalFetch(resource, config);
+    if (response.status === 401 && typeof resource === 'string' && resource.startsWith(API_BASE + '/api/') && !resource.includes('/api/auth/login')) {
+        showLoginScreen('Session expired or unauthorized. Please unlock with password.');
+    }
+    return response;
+};
+
 // Active states and global references
 let globalReminderTypes = [];
 let globalClients = [];
@@ -14,9 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSchedules();
     initTemplates();
     initSettings();
-    
-    // Initial page load
-    loadDashboardData();
+    initAuth();
 });
 
 /* -------------------------------------------------------------
@@ -1604,5 +1640,133 @@ function initDashboardSearch() {
                 document.querySelector('.nav-btn[data-view="company-lookup"]').click();
             }
         });
+    }
+}
+
+
+/* -------------------------------------------------------------
+   Authentication & Password Gate Controller
+   ------------------------------------------------------------- */
+function showLoginScreen(errorMsg = '') {
+    const screenLogin = document.getElementById('screen-login');
+    const appContainer = document.getElementById('app-container');
+    const errorBox = document.getElementById('login-error');
+    const passwordInput = document.getElementById('input-login-password');
+
+    if (screenLogin) screenLogin.style.display = 'flex';
+    if (appContainer) appContainer.style.display = 'none';
+
+    if (errorBox) {
+        if (errorMsg) {
+            errorBox.innerText = errorMsg;
+            errorBox.style.display = 'block';
+        } else {
+            errorBox.style.display = 'none';
+        }
+    }
+    if (passwordInput) {
+        passwordInput.value = '';
+        setTimeout(() => passwordInput.focus(), 100);
+    }
+}
+
+function hideLoginScreen() {
+    const screenLogin = document.getElementById('screen-login');
+    const appContainer = document.getElementById('app-container');
+    if (screenLogin) screenLogin.style.display = 'none';
+    if (appContainer) appContainer.style.display = 'flex';
+}
+
+function initAuth() {
+    const formLogin = document.getElementById('form-login');
+    const passwordInput = document.getElementById('input-login-password');
+    const toggleEyeBtn = document.getElementById('btn-toggle-password');
+    const errorBox = document.getElementById('login-error');
+    const loginCard = document.querySelector('.login-card');
+    const submitBtn = document.getElementById('btn-login-submit');
+    const sidebarLogoutBtn = document.getElementById('btn-sidebar-logout');
+
+    // 1. Password reveal toggle
+    if (toggleEyeBtn && passwordInput) {
+        toggleEyeBtn.addEventListener('click', () => {
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            toggleEyeBtn.innerText = isPassword ? '🙈' : '👁️';
+        });
+    }
+
+    // 2. Login form submission
+    if (formLogin) {
+        formLogin.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = passwordInput.value;
+            if (!password) return;
+
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Verifying Password...';
+            errorBox.style.display = 'none';
+
+            try {
+                const res = await originalFetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+
+                if (res.ok && data.token) {
+                    setAuthToken(data.token);
+                    hideLoginScreen();
+                    showToast('Access granted! Dashboard unlocked.', 'success');
+                    loadDashboardData();
+                } else {
+                    errorBox.innerText = data.error || 'Incorrect password. Access denied.';
+                    errorBox.style.display = 'block';
+                    if (loginCard) {
+                        loginCard.classList.remove('shake');
+                        void loginCard.offsetWidth; // Trigger reflow
+                        loginCard.classList.add('shake');
+                    }
+                    passwordInput.select();
+                }
+            } catch (err) {
+                errorBox.innerText = 'Connection error: ' + err.message;
+                errorBox.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Unlock Dashboard 🔓';
+            }
+        });
+    }
+
+    // 3. Sidebar Lock Session button
+    if (sidebarLogoutBtn) {
+        sidebarLogoutBtn.addEventListener('click', () => {
+            removeAuthToken();
+            showLoginScreen('Session locked. Enter password to re-open.');
+            showToast('Dashboard locked successfully.', 'info');
+        });
+    }
+
+    // 4. Initial session check on startup
+    const existingToken = getAuthToken();
+    if (existingToken) {
+        originalFetch(`${API_BASE}/api/auth/check`, {
+            headers: { 'Authorization': `Bearer ${existingToken}` }
+        }).then(res => {
+            if (res.ok) {
+                hideLoginScreen();
+                loadDashboardData();
+            } else {
+                removeAuthToken();
+                showLoginScreen();
+            }
+        }).catch(() => {
+            // Offline or network glitch, try unlocking
+            hideLoginScreen();
+            loadDashboardData();
+        });
+    } else {
+        showLoginScreen();
     }
 }
