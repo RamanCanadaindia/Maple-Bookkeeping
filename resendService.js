@@ -147,6 +147,13 @@ function getDocumentList(rtCode) {
             <li>Current registered office mailing address</li>
             <li>Notice of corporate shares changes, if any</li>
         </ul>`;
+    } else if (rtCode === 'INSURANCE_POLICY' || rtCode === 'INSURANCE' || rtCode.includes('INSUR')) {
+        return `<ul style="${listStyle}">
+            <li>Current insurance policy schedule & certificate</li>
+            <li>Insurance renewal notice & premium quote</li>
+            <li>Details of any updated assets, properties, or vehicles</li>
+            <li>Claims history or coverage modification requests</li>
+        </ul>`;
     } else {
         return `<ul style="${listStyle}">
             <li>Corporate financial reports (Balance Sheet & Income Statement)</li>

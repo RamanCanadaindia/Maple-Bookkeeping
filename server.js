@@ -183,6 +183,64 @@ app.post('/api/scheduler/run', async (req, res) => {
     }
 });
 
+// Preview Trigger for a Specific Notification
+app.get('/api/notifications/:id/preview', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const db = await getDb();
+        
+        // 1. Fetch notification details
+        const notif = await db.get(`
+            SELECT n.*, r.reminder_type_id, r.frequency, rt.code as reminder_type_code, rt.name as filing_name,
+                   c.name as client_name, c.email as client_email, c.phone as client_phone, c.business_name
+            FROM notifications n
+            JOIN reminders r ON n.reminder_id = r.id
+            JOIN clients c ON r.client_id = c.id
+            JOIN reminder_types rt ON r.reminder_type_id = rt.id
+            WHERE n.id = ?
+        `, [id]);
+        
+        if (!notif) {
+            return res.status(404).json({ error: 'Notification alert not found.' });
+        }
+        
+        // 2. Fetch template
+        const template = await db.get('SELECT * FROM email_templates WHERE reminder_type_id = ?', [notif.reminder_type_id]);
+        if (!template) {
+            return res.status(404).json({ error: `Filing template not configured for type: ${notif.filing_name}` });
+        }
+        
+        // 3. Compile template
+        const clientObj = {
+            name: notif.client_name,
+            email: notif.client_email,
+            phone: notif.client_phone,
+            business_name: notif.business_name
+        };
+        const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif);
+        
+        res.json({
+            success: true,
+            notification: {
+                id: notif.id,
+                recipient_email: notif.recipient_email,
+                client_name: notif.client_name,
+                business_name: notif.business_name,
+                filing_name: notif.filing_name,
+                due_date: notif.due_date,
+                send_date: notif.send_date,
+                offset_days: notif.offset_days,
+                frequency: notif.frequency,
+                status: notif.status,
+                subject: compiled.subject,
+                bodyHtml: compiled.bodyHtml
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Manual Send Trigger for a Specific Notification
 app.post('/api/notifications/:id/send', async (req, res) => {
     const { id } = req.params;
@@ -442,7 +500,7 @@ function getSingleReminderOffset(defaultOffsets, fallback = 30) {
 }
 
 app.post('/api/clients', async (req, res) => {
-    const { name, email, phone, business_name, business_number, corporation_number, fiscal_year_end, gst_reporting_period, payroll_frequency, payroll_remitter_type, bc_anniversary_date } = req.body;
+    const { name, email, phone, business_name, business_number, corporation_number, fiscal_year_end, gst_reporting_period, payroll_frequency, payroll_remitter_type, bc_anniversary_date, insurance_renewal_date } = req.body;
     if (!name || !email) {
         return res.status(400).json({ error: 'Name and email are required fields.' });
     }
@@ -542,6 +600,27 @@ app.post('/api/clients', async (req, res) => {
                 
                 // Pre-generate T2 notifications
                 const offset = getSingleReminderOffset(t2Type.default_offsets, 60);
+                const sendDate = addDays(dueDate, -offset);
+                await db.run(
+                    `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+                    [reminderId, dueDate, offset, sendDate, email.trim()]
+                );
+            }
+        }
+
+        // 5. Insurance Policy Renewal Schedule
+        if (insurance_renewal_date && insurance_renewal_date !== 'None' && insurance_renewal_date !== '') {
+            const insType = reminderTypes.find(t => t.code === 'INSURANCE_POLICY' || t.code === 'insurance_policy' || t.code === 'INSURANCE' || (t.name && t.name.toLowerCase().includes('insurance')));
+            if (insType) {
+                const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(insurance_renewal_date) ? insurance_renewal_date : calculateNextAnniversaryDate(insurance_renewal_date);
+                const schedResult = await db.run(
+                    `INSERT INTO reminders (client_id, reminder_type_id, start_due_date, frequency, status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [clientId, insType.id, dueDate, 'Annually']
+                );
+                const reminderId = schedResult.lastID;
+                
+                // Pre-generate Insurance Policy notifications (30 days before renewal)
+                const offset = getSingleReminderOffset(insType.default_offsets, 30);
                 const sendDate = addDays(dueDate, -offset);
                 await db.run(
                     `INSERT INTO notifications (reminder_id, due_date, offset_days, send_date, recipient_email, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
@@ -926,4 +1005,11 @@ app.post('/api/quick-send', async (req, res) => {
     }
 });
 
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Reminder Server running locally at http://localhost:${PORT}`);
+    });
+}
+
 module.exports = app;
+

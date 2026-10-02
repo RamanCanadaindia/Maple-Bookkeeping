@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261002-preview">
 </head>
 <body>
     <!-- Authentication Lock Screen -->
@@ -355,6 +355,33 @@
                                     <div class="info-tip-box">
                                         <span class="info-icon">ℹ️</span>
                                         <span>BC Annual Report is due annually on the anniversary of incorporation.</span>
+                                    </div>
+                                </div>
+
+                                <!-- Section 5: Insurance Policy Information -->
+                                <div class="filing-panel">
+                                    <h4>🛡️ 5. Insurance Policy Information</h4>
+                                    <div class="form-group">
+                                        <label for="client-insurance-renewal">Insurance Policy Renewal / Expiry *</label>
+                                        <select id="client-insurance-renewal" required>
+                                            <option value="None">None / Not Applicable</option>
+                                            <option value="January 31">January 31</option>
+                                            <option value="February 28">February 28 / 29</option>
+                                            <option value="March 31">March 31</option>
+                                            <option value="April 30">April 30</option>
+                                            <option value="May 31">May 31</option>
+                                            <option value="June 30">June 30</option>
+                                            <option value="July 31">July 31</option>
+                                            <option value="August 31">August 31</option>
+                                            <option value="September 30">September 30</option>
+                                            <option value="October 31">October 31</option>
+                                            <option value="November 30">November 30</option>
+                                            <option value="December 31">December 31</option>
+                                        </select>
+                                    </div>
+                                    <div class="info-tip-box">
+                                        <span class="info-icon">ℹ️</span>
+                                        <span>Insurance policy renewal reminder is scheduled 30 days prior to expiry.</span>
                                     </div>
                                 </div>
                             </div>
@@ -823,6 +850,61 @@
         </main>
     </div>
     
-    <script src="app.js?v=20260731-3"></script>
+    <!-- Reminder Email Preview & Send Modal -->
+    <div id="reminder-preview-modal" class="modal-backdrop">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.6rem;">📧</span>
+                    <div>
+                        <h3 id="preview-modal-title" style="margin: 0; font-size: 1.25rem;">Preview Reminder Email</h3>
+                        <p id="preview-modal-subtitle" style="margin: 0; font-size: 0.82rem; color: var(--text-secondary);">Review email styling and recipient details before dispatching</p>
+                    </div>
+                </div>
+                <button type="button" class="modal-close-btn" onclick="closeReminderPreviewModal()" title="Close">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Email Meta Info -->
+                <div class="email-preview-meta-card">
+                    <div class="email-preview-meta-row">
+                        <span class="meta-label">Recipient:</span>
+                        <span class="meta-val" id="preview-modal-recipient">-</span>
+                    </div>
+                    <div class="email-preview-meta-row">
+                        <span class="meta-label">Company / Client:</span>
+                        <span class="meta-val" id="preview-modal-client">-</span>
+                    </div>
+                    <div class="email-preview-meta-row">
+                        <span class="meta-label">Filing Type:</span>
+                        <span class="meta-val" id="preview-modal-filing">-</span>
+                    </div>
+                    <div class="email-preview-meta-row">
+                        <span class="meta-label">Filing Due Date:</span>
+                        <span class="meta-val" id="preview-modal-duedate">-</span>
+                    </div>
+                    <div class="email-preview-meta-row subject-row">
+                        <span class="meta-label">Subject:</span>
+                        <span class="meta-val" id="preview-modal-subject">-</span>
+                    </div>
+                </div>
+
+                <!-- HTML Email Render Iframe -->
+                <div class="preview-iframe-wrapper modal-iframe-wrapper">
+                    <iframe id="reminder-preview-iframe" title="Email Preview"></iframe>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeReminderPreviewModal()">Cancel / Close</button>
+                <button type="button" id="btn-modal-send-now" class="btn btn-primary">
+                    <span>✉️ Send Reminder Now</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=20261002-1"></script>
 </body>
 </html>
+

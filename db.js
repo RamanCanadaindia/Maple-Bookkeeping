@@ -14,8 +14,16 @@ class SupabaseAdapter {
         this.isSupabase = true;
     }
 
-    async get(sql, params = []) {
-        const rows = await this.all(sql, params);
+    _normalizeParams(args) {
+        if (!args || args.length === 0) return [];
+        if (args.length === 1 && Array.isArray(args[0])) return args[0];
+        if (args.length === 1 && args[0] === undefined) return [];
+        return Array.isArray(args) ? args.flat() : [args];
+    }
+
+    async get(sql, ...params) {
+        const flatParams = this._normalizeParams(params);
+        const rows = await this.all(sql, flatParams);
         if (!rows || rows.length === 0) {
             if (/COUNT/i.test(sql)) return { count: 0 };
             return undefined;
@@ -23,7 +31,8 @@ class SupabaseAdapter {
         return rows[0];
     }
 
-    async all(sql, params = []) {
+    async all(sql, ...params) {
+        params = this._normalizeParams(params);
         const cleanSql = sql.trim().replace(/\s+/g, ' ');
         const isCount = /^SELECT\s+COUNT/i.test(cleanSql);
 
@@ -269,7 +278,8 @@ class SupabaseAdapter {
         return [];
     }
 
-    async run(sql, params = []) {
+    async run(sql, ...params) {
+        params = this._normalizeParams(params);
         const cleanSql = sql.trim().replace(/\s+/g, ' ');
 
         // Settings update
@@ -869,8 +879,8 @@ async function seedDb(db) {
     }
     
     // Seed Reminder Types
-    const typeCount = await db.get('SELECT COUNT(*) as count FROM reminder_types');
-    if (typeCount.count === 0) {
+    const allTypes = await db.all('SELECT * FROM reminder_types');
+    if (allTypes.length === 0) {
         // One reminder per filing schedule.
         const r1 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
             'GST/HST Return', 'GST_HST', '30');
@@ -890,6 +900,11 @@ async function seedDb(db) {
         const r4 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
             'Corporation Tax Return (T2)', 'CORP_TAX_T2', '60');
         const r4_id = r4.lastID;
+
+        // Insurance Policy Renewal: one reminder 30 days before renewal/expiry.
+        const r5 = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)', 
+            'Insurance Policy Renewal', 'INSURANCE_POLICY', '30');
+        const r5_id = r5.lastID;
         
         // Templates Seeding using Common Premium HTML Layout
         
@@ -924,6 +939,31 @@ async function seedDb(db) {
             'Reminder: Corporation Tax Return Due {{DueDate}}',
             COMMON_HTML_TEMPLATE
         );
+
+        // Insurance Policy Renewal Template
+        await db.run(`INSERT INTO email_templates (reminder_type_id, name, subject, body_html) VALUES (?, ?, ?, ?)`,
+            r5_id,
+            'Insurance Policy Renewal Template',
+            'Reminder: Insurance Policy Renewal Due {{DueDate}}',
+            COMMON_HTML_TEMPLATE
+        );
+    } else {
+        // Ensure Insurance Policy exists in already-seeded database
+        const existingInsurance = allTypes.find(t => t.code === 'INSURANCE_POLICY' || t.code === 'insurance_policy' || t.code === 'INSURANCE');
+        if (!existingInsurance) {
+            const rIns = await db.run('INSERT INTO reminder_types (name, code, default_offsets) VALUES (?, ?, ?)',
+                'Insurance Policy Renewal', 'INSURANCE_POLICY', '30');
+            const allTypesAfter = await db.all('SELECT * FROM reminder_types');
+            const insType = allTypesAfter.find(t => t.code === 'INSURANCE_POLICY');
+            const insTypeId = insType ? insType.id : rIns.lastID;
+            
+            await db.run(`INSERT INTO email_templates (reminder_type_id, name, subject, body_html) VALUES (?, ?, ?, ?)`,
+                insTypeId,
+                'Insurance Policy Renewal Template',
+                'Reminder: Insurance Policy Renewal Due {{DueDate}}',
+                COMMON_HTML_TEMPLATE
+            );
+        }
     }
     
     // Migration: use one reminder offset per filing type.
@@ -932,7 +972,8 @@ async function seedDb(db) {
         GST_HST: '30',
         PAYROLL: '7',
         BC_ANNUAL: '30',
-        CORP_TAX_T2: '60'
+        CORP_TAX_T2: '60',
+        INSURANCE_POLICY: '30'
     };
     for (const rt of reminderTypes) {
         if (singleOffsets[rt.code]) {
@@ -945,7 +986,8 @@ async function seedDb(db) {
         GST_HST: 'Reminder: GST/HST Return Due {{DueDate}}',
         PAYROLL: 'Reminder: Payroll Remittance Due {{DueDate}}',
         BC_ANNUAL: 'Reminder: BC Annual Report Due {{DueDate}}',
-        CORP_TAX_T2: 'Reminder: Corporation Tax Return Due {{DueDate}}'
+        CORP_TAX_T2: 'Reminder: Corporation Tax Return Due {{DueDate}}',
+        INSURANCE_POLICY: 'Reminder: Insurance Policy Renewal Due {{DueDate}}'
     };
 
     for (const rt of reminderTypes) {

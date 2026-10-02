@@ -240,7 +240,10 @@ async function loadDashboardData() {
                     <td><code>${n.offset_days}</code></td>
                     <td><span class="badge badge-${n.status.toLowerCase()}">${n.status}</span></td>
                     <td>
-                        <button onclick="sendNotificationNow(${n.id}, this)" class="btn btn-sm btn-primary">✉️ Send Now</button>
+                        <div class="action-btn-group">
+                            <button onclick="previewNotificationModal(${n.id})" class="btn btn-sm btn-secondary" title="Preview Reminder Email">👁️ Preview</button>
+                            <button onclick="sendNotificationNow(${n.id}, this)" class="btn btn-sm btn-primary" title="Send Reminder Now">✉️ Send Now</button>
+                        </div>
                     </td>
                 </tr>
             `).join('');
@@ -285,7 +288,8 @@ function initClients() {
             gst_reporting_period: document.getElementById('client-gst-period').value,
             payroll_frequency: document.getElementById('client-payroll-freq').value,
             payroll_remitter_type: document.getElementById('client-payroll-type').value,
-            bc_anniversary_date: document.getElementById('client-bc-anniversary').value
+            bc_anniversary_date: document.getElementById('client-bc-anniversary').value,
+            insurance_renewal_date: document.getElementById('client-insurance-renewal')?.value || 'None'
         };
         
         try {
@@ -718,6 +722,7 @@ function updateLiveTemplatePreview() {
     if (filingName.includes('Payroll')) rtCode = 'PAYROLL';
     if (filingName.includes('BC Annual')) rtCode = 'BC_ANNUAL';
     if (filingName.includes('Corporation')) rtCode = 'CORP_TAX_T2';
+    if (filingName.includes('Insurance')) rtCode = 'INSURANCE_POLICY';
     
     const listStyle = "margin: 0; padding-left: 20px; text-align: left;";
     let documentList = '';
@@ -739,6 +744,13 @@ function updateLiveTemplatePreview() {
             <li>Confirmation of active director details & home addresses</li>
             <li>Current registered office mailing address</li>
             <li>Notice of corporate shares changes, if any</li>
+        </ul>`;
+    } else if (rtCode === 'INSURANCE_POLICY' || rtCode === 'INSURANCE') {
+        documentList = `<ul style="${listStyle}">
+            <li>Current insurance policy schedule & certificate</li>
+            <li>Insurance renewal notice & premium quote</li>
+            <li>Details of any updated assets, properties, or vehicles</li>
+            <li>Claims history or coverage modification requests</li>
         </ul>`;
     } else {
         documentList = `<ul style="${listStyle}">
@@ -908,6 +920,71 @@ function closeEmailSentModal() {
     if (modal) modal.classList.remove('active');
 }
 
+let currentPreviewNotificationId = null;
+
+async function previewNotificationModal(id, optionalClientId) {
+    currentPreviewNotificationId = id;
+    const modal = document.getElementById('reminder-preview-modal');
+    if (!modal) return;
+
+    // Reset fields to loading state
+    document.getElementById('preview-modal-recipient').innerText = 'Loading recipient...';
+    document.getElementById('preview-modal-client').innerText = 'Loading client details...';
+    document.getElementById('preview-modal-filing').innerText = 'Loading filing type...';
+    document.getElementById('preview-modal-duedate').innerText = 'Loading due date...';
+    document.getElementById('preview-modal-subject').innerText = 'Loading subject line...';
+
+    const iframe = document.getElementById('reminder-preview-iframe');
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write('<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:#64748b;font-size:15px;">⏳ Loading reminder email preview...</div>');
+    doc.close();
+
+    const sendBtn = document.getElementById('btn-modal-send-now');
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<span>✉️ Send Reminder Now</span>';
+    }
+
+    modal.classList.add('active');
+
+    try {
+        const res = await fetch(`${API_BASE}/api/notifications/${id}/preview`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Could not fetch reminder email preview.');
+        }
+
+        const notif = data.notification;
+        document.getElementById('preview-modal-recipient').innerText = notif.recipient_email || '-';
+        document.getElementById('preview-modal-client').innerText = `${notif.client_name || '-'}${notif.business_name ? ` (${notif.business_name})` : ''}`;
+        document.getElementById('preview-modal-filing').innerText = notif.filing_name || '-';
+        document.getElementById('preview-modal-duedate').innerText = `${formatDate(notif.due_date)} (${notif.offset_days} days offset)`;
+        document.getElementById('preview-modal-subject').innerText = notif.subject || '(No subject)';
+
+        doc.open();
+        doc.write(notif.bodyHtml || '<p>No email content available</p>');
+        doc.close();
+
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.onclick = async () => {
+                await sendNotificationNow(id, sendBtn, optionalClientId);
+            };
+        }
+    } catch (err) {
+        showToast('Failed to load email preview: ' + err.message, 'danger');
+        closeReminderPreviewModal();
+    }
+}
+
+function closeReminderPreviewModal() {
+    const modal = document.getElementById('reminder-preview-modal');
+    if (modal) modal.classList.remove('active');
+    currentPreviewNotificationId = null;
+}
+
 async function sendNotificationNow(id, btnElement, optionalClientId) {
     if (!confirm('Approve and send this reminder now? A BCC copy will also be sent to beedhtaxservices@gmail.com.')) {
         return;
@@ -915,7 +992,7 @@ async function sendNotificationNow(id, btnElement, optionalClientId) {
 
     if (btnElement) {
         btnElement.disabled = true;
-        btnElement.innerText = 'Sending...';
+        btnElement.innerHTML = '<span>Sending...</span>';
     }
     try {
         const res = await fetch(`${API_BASE}/api/notifications/${id}/send`, { method: 'POST' });
@@ -923,6 +1000,7 @@ async function sendNotificationNow(id, btnElement, optionalClientId) {
         if (res.ok) {
             showToast('Reminder email successfully dispatched to customer!', 'success');
             showEmailSentModal('Customer Email', data.messageId);
+            closeReminderPreviewModal();
             await loadDashboardData();
             if (optionalClientId) {
                 await loadCompanyActivity(optionalClientId);
@@ -933,14 +1011,14 @@ async function sendNotificationNow(id, btnElement, optionalClientId) {
             showToast('Failed to send reminder: ' + (data.error || 'Unknown error'), 'danger');
             if (btnElement) {
                 btnElement.disabled = false;
-                btnElement.innerText = '✉️ Send Now';
+                btnElement.innerHTML = '<span>✉️ Send Now</span>';
             }
         }
     } catch (err) {
         showToast('Connection error: ' + err.message, 'danger');
         if (btnElement) {
             btnElement.disabled = false;
-            btnElement.innerText = '✉️ Send Now';
+            btnElement.innerHTML = '<span>✉️ Send Now</span>';
         }
     }
 }
@@ -1149,6 +1227,13 @@ function updateQuickSendPreview() {
             <li>Current registered office mailing address</li>
             <li>Notice of corporate shares changes, if any</li>
         </ul>`;
+    } else if (rtCode === 'INSURANCE_POLICY' || rtCode === 'INSURANCE') {
+        documentList = `<ul style="${listStyle}">
+            <li>Current insurance policy schedule & certificate</li>
+            <li>Insurance renewal notice & premium quote</li>
+            <li>Details of any updated assets, properties, or vehicles</li>
+            <li>Claims history or coverage modification requests</li>
+        </ul>`;
     } else {
         documentList = `<ul style="${listStyle}">
             <li>Corporate financial reports (Balance Sheet & Income Statement)</li>
@@ -1267,6 +1352,13 @@ async function handleQuickSendSubmit(e) {
             <li>Confirmation of active director details & home addresses</li>
             <li>Current registered office mailing address</li>
             <li>Notice of corporate shares changes, if any</li>
+        </ul>`;
+    } else if (rtCode === 'INSURANCE_POLICY' || rtCode === 'INSURANCE') {
+        documentList = `<ul style="${listStyle}">
+            <li>Current insurance policy schedule & certificate</li>
+            <li>Insurance renewal notice & premium quote</li>
+            <li>Details of any updated assets, properties, or vehicles</li>
+            <li>Claims history or coverage modification requests</li>
         </ul>`;
     } else {
         documentList = `<ul style="${listStyle}">
@@ -1541,7 +1633,10 @@ async function loadCompanyActivity(clientId) {
                     <td><code>${n.offset_days} days</code></td>
                     <td><span class="badge badge-warning">${n.status}</span></td>
                     <td>
-                        <button onclick="sendNotificationNow(${n.id}, this, ${clientId})" class="btn btn-sm btn-primary">✉️ Send Now</button>
+                        <div class="action-btn-group">
+                            <button onclick="previewNotificationModal(${n.id}, ${clientId})" class="btn btn-sm btn-secondary" title="Preview Reminder Email">👁️ Preview</button>
+                            <button onclick="sendNotificationNow(${n.id}, this, ${clientId})" class="btn btn-sm btn-primary" title="Send Reminder Now">✉️ Send Now</button>
+                        </div>
                     </td>
                 </tr>
             `).join('');
@@ -1769,4 +1864,22 @@ function initAuth() {
     } else {
         showLoginScreen();
     }
+
+    // Modal dismiss on click outside or Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeReminderPreviewModal();
+            closeEmailSentModal();
+        }
+    });
+
+    const previewModalBackdrop = document.getElementById('reminder-preview-modal');
+    if (previewModalBackdrop) {
+        previewModalBackdrop.addEventListener('click', (e) => {
+            if (e.target === previewModalBackdrop) {
+                closeReminderPreviewModal();
+            }
+        });
+    }
 }
+
