@@ -192,7 +192,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
         // 1. Fetch notification details
         const notif = await db.get(`
             SELECT n.*, r.reminder_type_id, r.frequency, rt.code as reminder_type_code, rt.name as filing_name,
-                   c.name as client_name, c.email as client_email, c.phone as client_phone, c.business_name
+                   c.name as client_name, c.email as client_email, c.phone as client_phone, c.business_name, c.fiscal_year_end
             FROM notifications n
             JOIN reminders r ON n.reminder_id = r.id
             JOIN clients c ON r.client_id = c.id
@@ -215,7 +215,8 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
             name: notif.client_name,
             email: notif.client_email,
             phone: notif.client_phone,
-            business_name: notif.business_name
+            business_name: notif.business_name,
+            fiscal_year_end: notif.fiscal_year_end
         };
         const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif);
         
@@ -226,6 +227,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
                 recipient_email: notif.recipient_email,
                 client_name: notif.client_name,
                 business_name: notif.business_name,
+                fiscal_year_end: notif.fiscal_year_end,
                 filing_name: notif.filing_name,
                 due_date: notif.due_date,
                 send_date: notif.send_date,
@@ -233,7 +235,8 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
                 frequency: notif.frequency,
                 status: notif.status,
                 subject: compiled.subject,
-                bodyHtml: compiled.bodyHtml
+                bodyHtml: compiled.bodyHtml,
+                year_end: compiled.yearEnd
             }
         });
     } catch (err) {
@@ -244,6 +247,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
 // Manual Send Trigger for a Specific Notification
 app.post('/api/notifications/:id/send', async (req, res) => {
     const { id } = req.params;
+    const { custom_year_end } = req.body || {};
     try {
         const db = await getDb();
         
@@ -258,7 +262,7 @@ app.post('/api/notifications/:id/send', async (req, res) => {
         // 2. Fetch notification details
         const notif = await db.get(`
             SELECT n.*, r.reminder_type_id, r.frequency, rt.code as reminder_type_code, rt.name as filing_name,
-                   c.name as client_name, c.email as client_email, c.phone as client_phone, c.business_name
+                   c.name as client_name, c.email as client_email, c.phone as client_phone, c.business_name, c.fiscal_year_end
             FROM notifications n
             JOIN reminders r ON n.reminder_id = r.id
             JOIN clients c ON r.client_id = c.id
@@ -281,9 +285,10 @@ app.post('/api/notifications/:id/send', async (req, res) => {
             name: notif.client_name,
             email: notif.client_email,
             phone: notif.client_phone,
-            business_name: notif.business_name
+            business_name: notif.business_name,
+            fiscal_year_end: notif.fiscal_year_end
         };
-        const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif);
+        const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif, custom_year_end);
         
         // 5. Dispatch email via Resend
         const result = await sendResendEmail(apiKey, fromEmail, notif.recipient_email, compiled.subject, compiled.bodyHtml);

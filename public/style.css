@@ -1268,5 +1268,26 @@ td.empty {
     flex-wrap: nowrap;
 }
 
+.meta-input {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    color: #60a5fa !important;
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    width: 100%;
+    max-width: 200px;
+    transition: var(--transition);
+}
+
+.meta-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+    background: rgba(26, 35, 58, 0.95);
+}
+
+
 
 

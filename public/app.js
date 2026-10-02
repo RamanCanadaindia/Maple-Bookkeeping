@@ -794,12 +794,16 @@ function updateLiveTemplatePreview() {
         '{{instagramLink}}': 'https://www.instagram.com/ramantaxandaccounting/',
         '{{reminderTitle}}': 'Upcoming Filing Due',
         '{{filingType}}': filingName,
-        '{{reportingPeriod}}': 'Q2 (2026)',
+        '{{reportingPeriod}}': 'March 31, 2026',
+        '{{yearEnd}}': 'March 31, 2026',
+        '{{YearEnd}}': 'March 31, 2026',
+        year_end: 'March 31, 2026',
+        reporting_period: 'March 31, 2026',
         '{{documentList}}': documentList,
         '{{emailSubject}}': encodeURIComponent(compiledSubj)
     };
     
-    let compiledBody = bodyHtml;
+    let compiledBody = bodyHtml.replace(/Reporting\s+period/gi, 'Year end');
     
     for (const [key, val] of Object.entries(replacements)) {
         if (key.startsWith('{{')) {
@@ -921,9 +925,11 @@ function closeEmailSentModal() {
 }
 
 let currentPreviewNotificationId = null;
+let currentPreviewNotifData = null;
 
 async function previewNotificationModal(id, optionalClientId) {
     currentPreviewNotificationId = id;
+    currentPreviewNotifData = null;
     const modal = document.getElementById('reminder-preview-modal');
     if (!modal) return;
 
@@ -933,6 +939,8 @@ async function previewNotificationModal(id, optionalClientId) {
     document.getElementById('preview-modal-filing').innerText = 'Loading filing type...';
     document.getElementById('preview-modal-duedate').innerText = 'Loading due date...';
     document.getElementById('preview-modal-subject').innerText = 'Loading subject line...';
+    const yearEndInput = document.getElementById('preview-modal-yearend');
+    if (yearEndInput) yearEndInput.value = '';
 
     const iframe = document.getElementById('reminder-preview-iframe');
     const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -957,15 +965,22 @@ async function previewNotificationModal(id, optionalClientId) {
         }
 
         const notif = data.notification;
+        currentPreviewNotifData = notif;
         document.getElementById('preview-modal-recipient').innerText = notif.recipient_email || '-';
         document.getElementById('preview-modal-client').innerText = `${notif.client_name || '-'}${notif.business_name ? ` (${notif.business_name})` : ''}`;
         document.getElementById('preview-modal-filing').innerText = notif.filing_name || '-';
         document.getElementById('preview-modal-duedate').innerText = `${formatDate(notif.due_date)} (${notif.offset_days} days offset)`;
         document.getElementById('preview-modal-subject').innerText = notif.subject || '(No subject)';
+        
+        const currentYearEnd = notif.year_end || notif.reporting_period || '';
+        if (yearEndInput) {
+            yearEndInput.value = currentYearEnd;
+            yearEndInput.oninput = () => {
+                renderModalIframe(yearEndInput.value);
+            };
+        }
 
-        doc.open();
-        doc.write(notif.bodyHtml || '<p>No email content available</p>');
-        doc.close();
+        renderModalIframe(currentYearEnd);
 
         if (sendBtn) {
             sendBtn.disabled = false;
@@ -979,10 +994,26 @@ async function previewNotificationModal(id, optionalClientId) {
     }
 }
 
+function renderModalIframe(customYearEnd) {
+    if (!currentPreviewNotifData) return;
+    const iframe = document.getElementById('reminder-preview-iframe');
+    if (!iframe) return;
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    let body = currentPreviewNotifData.bodyHtml || '';
+    const originalYE = currentPreviewNotifData.year_end || '';
+    if (customYearEnd && originalYE && customYearEnd !== originalYE) {
+        body = body.split(originalYE).join(customYearEnd);
+    }
+    doc.open();
+    doc.write(body);
+    doc.close();
+}
+
 function closeReminderPreviewModal() {
     const modal = document.getElementById('reminder-preview-modal');
     if (modal) modal.classList.remove('active');
     currentPreviewNotificationId = null;
+    currentPreviewNotifData = null;
 }
 
 async function sendNotificationNow(id, btnElement, optionalClientId) {
@@ -990,12 +1021,19 @@ async function sendNotificationNow(id, btnElement, optionalClientId) {
         return;
     }
 
+    const yearEndVal = document.getElementById('preview-modal-yearend')?.value || undefined;
+
     if (btnElement) {
         btnElement.disabled = true;
         btnElement.innerHTML = '<span>Sending...</span>';
     }
     try {
-        const res = await fetch(`${API_BASE}/api/notifications/${id}/send`, { method: 'POST' });
+        const payload = yearEndVal ? { custom_year_end: yearEndVal } : {};
+        const res = await fetch(`${API_BASE}/api/notifications/${id}/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
         const data = await res.json();
         if (res.ok) {
             showToast('Reminder email successfully dispatched to customer!', 'success');
@@ -1283,12 +1321,16 @@ function updateQuickSendPreview() {
         '{{instagramLink}}': 'https://www.instagram.com/ramantaxandaccounting/',
         '{{reminderTitle}}': 'Friendly Filing Reminder',
         '{{filingType}}': filingName,
-        '{{reportingPeriod}}': period || 'Q2 (2026)',
+        '{{reportingPeriod}}': period || (client.fiscal_year_end ? `${client.fiscal_year_end}` : 'March 31, 2026'),
+        '{{yearEnd}}': period || (client.fiscal_year_end ? `${client.fiscal_year_end}` : 'March 31, 2026'),
+        '{{YearEnd}}': period || (client.fiscal_year_end ? `${client.fiscal_year_end}` : 'March 31, 2026'),
+        year_end: period || (client.fiscal_year_end ? `${client.fiscal_year_end}` : 'March 31, 2026'),
+        reporting_period: period || (client.fiscal_year_end ? `${client.fiscal_year_end}` : 'March 31, 2026'),
         '{{documentList}}': documentList,
         '{{emailSubject}}': encodeURIComponent(compiledSubj)
     };
     
-    let compiledBody = bodyHtml;
+    let compiledBody = bodyHtml.replace(/Reporting\s+period/gi, 'Year end');
     
     for (const [key, val] of Object.entries(replacements)) {
         if (key.startsWith('{{')) {

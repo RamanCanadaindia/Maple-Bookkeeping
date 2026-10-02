@@ -659,8 +659,8 @@
                                     <input type="date" id="quicksend-duedate">
                                 </div>
                                 <div class="form-group">
-                                    <label for="quicksend-period">Reporting Period (Prefills {{reportingPeriod}})</label>
-                                    <input type="text" id="quicksend-period" placeholder="e.g. Q2 (2026)">
+                                    <label for="quicksend-period">Year End / Period (Prefills {{yearEnd}} / {{reportingPeriod}})</label>
+                                    <input type="text" id="quicksend-period" placeholder="e.g. March 31, 2026 or Q2 (2026)">
                                 </div>
                             </div>
                             <div class="form-group" style="margin-top: 15px;">
@@ -882,6 +882,13 @@
                     <div class="email-preview-meta-row">
                         <span class="meta-label">Filing Due Date:</span>
                         <span class="meta-val" id="preview-modal-duedate">-</span>
+                    </div>
+                    <div class="email-preview-meta-row">
+                        <span class="meta-label">Year End:</span>
+                        <div style="flex: 1; display: flex; align-items: center; gap: 6px;">
+                            <input type="text" id="preview-modal-yearend" class="meta-input" placeholder="e.g. March 31, 2026 or 2026" title="Customize Year End for this email">
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">(Editable)</span>
+                        </div>
                     </div>
                     <div class="email-preview-meta-row subject-row">
                         <span class="meta-label">Subject:</span>

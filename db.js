@@ -196,6 +196,7 @@ class SupabaseAdapter {
                     business_name: cl.business_name || cl.name || '',
                     client_email: cl.email || n.recipient_email || '',
                     client_phone: cl.phone || '',
+                    fiscal_year_end: cl.fiscal_year_end || cl.year_end || '',
                     filing_name: rt.name || 'Filing'
                 };
             });
@@ -206,6 +207,12 @@ class SupabaseAdapter {
             if (/WHERE\s+(n\.)?id\s*=\s*\?/i.test(cleanSql) && params.length > 0) {
                 const targetId = parseInt(params[0], 10);
                 list = list.filter(x => x.id === targetId);
+            } else {
+                const idMatch = cleanSql.match(/WHERE\s+(?:n\.)?id\s*=\s*(\d+)/i);
+                if (idMatch) {
+                    const targetId = parseInt(idMatch[1], 10);
+                    list = list.filter(x => x.id === targetId);
+                }
             }
             if (/AND n.send_date <= \?/i.test(cleanSql) && params.length > 0) {
                 list = list.filter(x => x.send_date <= params[params.length - 1]);
@@ -661,7 +668,7 @@ const COMMON_HTML_TEMPLATE = `<div style="max-width: 620px; margin: 0 auto; back
 
                 <tr>
                     <td style="padding: 8px 0; color: #64748b; font-size: 14px; border-top: 1px solid #e2e8f0;">
-                        Reporting period
+                        Year end
                     </td>
                     <td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 700; text-align: right; border-top: 1px solid #e2e8f0;">
                         {{reportingPeriod}}

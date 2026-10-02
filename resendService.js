@@ -86,20 +86,58 @@ async function sendResendEmail(apiKey, fromEmail, toEmail, subject, bodyHtml) {
     }
 }
 
-function getReportingPeriod(dueDateStr, frequency) {
-    if (!dueDateStr) return 'Current Period';
+function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', customYearEnd = '') {
+    if (customYearEnd && typeof customYearEnd === 'string' && customYearEnd.trim()) {
+        return customYearEnd.trim();
+    }
+    
+    if (!dueDateStr) return 'Current Year End';
     try {
         const [y, m, d] = dueDateStr.split('-').map(Number);
         const date = new Date(y, m - 1, d);
         
-        if (frequency === 'Monthly') {
-            // Previous month
+        // If it's a Corporation Tax Return (T2) or Annual Filing:
+        if (rtCode === 'CORP_TAX_T2' || rtCode.includes('T2') || frequency === 'Annually') {
+            if (client && client.fiscal_year_end) {
+                const fye = client.fiscal_year_end.trim();
+                // If fiscal_year_end already has a year (e.g. "2026-03-31" or "March 31, 2026")
+                if (/\d{4}/.test(fye)) {
+                    return fye;
+                }
+                // If fiscal_year_end is like "March 31" or "December 31":
+                const fyeMonthMatch = fye.match(/([A-Za-z]+)\s*(\d+)?/);
+                if (fyeMonthMatch) {
+                    const monthsMap = {
+                        'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
+                        'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11
+                    };
+                    const fyeM = monthsMap[fyeMonthMatch[1].toLowerCase()];
+                    if (fyeM !== undefined) {
+                        let fyeYear = y;
+                        // For T2 returns: T2 is due 6 months after fiscal year end.
+                        // If due month (m - 1) is before fiscal year end month, fiscal year end was in previous calendar year.
+                        if ((m - 1) < fyeM) {
+                            fyeYear = y - 1;
+                        }
+                        return `${fye}, ${fyeYear}`;
+                    }
+                }
+                return `${fye}, ${y}`;
+            }
+            
+            // Default annual fallback: 6 months before due date for T2, or previous year
+            if (rtCode === 'CORP_TAX_T2' || rtCode.includes('T2')) {
+                const fyeDate = new Date(y, m - 1 - 6, d);
+                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                return `${monthNames[fyeDate.getMonth()]} ${fyeDate.getDate()}, ${fyeDate.getFullYear()}`;
+            }
+            return String(y);
+        } else if (frequency === 'Monthly') {
             date.setMonth(date.getMonth() - 1);
             const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
             return `${months[date.getMonth()]} ${date.getFullYear()}`;
         } else if (frequency === 'Quarterly') {
-            // Previous quarter
-            const q = Math.floor(date.getMonth() / 3); // Current quarter (0-3)
+            const q = Math.floor(date.getMonth() / 3);
             let prevQ = q - 1;
             let prevYear = date.getFullYear();
             if (prevQ < 0) {
@@ -107,14 +145,11 @@ function getReportingPeriod(dueDateStr, frequency) {
                 prevYear -= 1;
             }
             return `Q${prevQ + 1} (${prevYear})`;
-        } else if (frequency === 'Annually') {
-            // Previous year
-            return String(date.getFullYear() - 1);
         } else {
             return `Period Ending ${dueDateStr}`;
         }
     } catch (err) {
-        return 'Current Period';
+        return 'Current Year End';
     }
 }
 
@@ -164,12 +199,13 @@ function getDocumentList(rtCode) {
     }
 }
 
-function compileTemplate(subject, bodyHtml, client, notification) {
+function compileTemplate(subject, bodyHtml, client = {}, notification = {}, customYearEnd = '') {
     const frequency = notification.frequency || 'Annually';
     const due_date = notification.due_date || '';
     const rt_code = notification.reminder_type_code || '';
     const filing_name = notification.filing_name || 'GST/HST Return';
     const offset = parseInt(notification.offset_days || '0', 10);
+    const finalYearEnd = customYearEnd || notification.custom_year_end || notification.year_end || '';
     
     // Compute title based on offset
     let reminderTitle = 'Filing Reminder';
@@ -184,7 +220,7 @@ function compileTemplate(subject, bodyHtml, client, notification) {
         else if (offset < 0) reminderTitle = 'OVERDUE FILING NOTICE';
     }
     
-    const reportingPeriod = getReportingPeriod(due_date, frequency);
+    const reportingPeriod = getReportingPeriod(due_date, frequency, client, rt_code, finalYearEnd);
     const documentList = getDocumentList(rt_code);
     
     let compiledSubject = subject;
@@ -245,11 +281,16 @@ function compileTemplate(subject, bodyHtml, client, notification) {
         '{{reminderTitle}}': reminderTitle,
         '{{filingType}}': filing_name,
         '{{reportingPeriod}}': reportingPeriod,
+        '{{yearEnd}}': reportingPeriod,
+        '{{YearEnd}}': reportingPeriod,
+        year_end: reportingPeriod,
+        reporting_period: reportingPeriod,
         '{{documentList}}': documentList,
         '{{emailSubject}}': encodeURIComponent(compiledSubject)
     };
     
-    let compiledBody = bodyHtml;
+    // Automatically normalize "Reporting period" in HTML table to "Year end"
+    let compiledBody = bodyHtml.replace(/Reporting\s+period/gi, 'Year end');
     
     for (const [key, val] of Object.entries(replacements)) {
         if (key.startsWith('{{')) {
@@ -262,12 +303,14 @@ function compileTemplate(subject, bodyHtml, client, notification) {
         }
     }
     
-    return { subject: compiledSubject, bodyHtml: compiledBody };
+    return { subject: compiledSubject, bodyHtml: compiledBody, yearEnd: reportingPeriod };
 }
 
 module.exports = {
     encryptApiKey,
     decryptApiKey,
     sendResendEmail,
-    compileTemplate
+    compileTemplate,
+    getReportingPeriod
 };
+
