@@ -1005,11 +1005,5 @@ app.post('/api/quick-send', async (req, res) => {
     }
 });
 
-if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`🚀 Reminder Server running locally at http://localhost:${PORT}`);
-    });
-}
-
 module.exports = app;
 
