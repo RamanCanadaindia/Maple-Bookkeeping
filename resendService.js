@@ -86,7 +86,7 @@ async function sendResendEmail(apiKey, fromEmail, toEmail, subject, bodyHtml) {
     }
 }
 
-function parseYearEndDate(yearEndStr) {
+function parseYearEndDate(yearEndStr, defaultYear) {
     if (!yearEndStr || typeof yearEndStr !== 'string') return null;
     const str = yearEndStr.trim();
     
@@ -110,23 +110,47 @@ function parseYearEndDate(yearEndStr) {
         'december': 11, 'dec': 11
     };
     
-    const match = str.match(/([A-Za-z]+)\s*(\d{1,2})?(?:st|nd|rd|th)?,?\s*(\d{4})/i) ||
-                  str.match(/(\d{1,2})?\s*([A-Za-z]+),?\s*(\d{4})/i);
+    // Pattern with 4-digit year: "April 30, 2025" or "April 30 2025" or "30 April 2025" or "April 2025"
+    const matchWithYear = str.match(/([A-Za-z]+)\s*(\d{1,2})?(?:st|nd|rd|th)?,?\s*(\d{4})/i) ||
+                          str.match(/(\d{1,2})?\s*([A-Za-z]+),?\s*(\d{4})/i);
     
-    if (match) {
+    if (matchWithYear) {
         let monthStr, dayNum, yearNum;
-        if (isNaN(match[1])) {
-            monthStr = match[1].toLowerCase();
-            dayNum = match[2] ? parseInt(match[2], 10) : null;
-            yearNum = parseInt(match[3], 10);
+        if (isNaN(matchWithYear[1])) {
+            monthStr = matchWithYear[1].toLowerCase();
+            dayNum = matchWithYear[2] ? parseInt(matchWithYear[2], 10) : null;
+            yearNum = parseInt(matchWithYear[3], 10);
         } else {
-            dayNum = parseInt(match[1], 10);
-            monthStr = match[2].toLowerCase();
-            yearNum = parseInt(match[3], 10);
+            dayNum = parseInt(matchWithYear[1], 10);
+            monthStr = matchWithYear[2].toLowerCase();
+            yearNum = parseInt(matchWithYear[3], 10);
         }
         
         const monthIndex = monthsMap[monthStr];
         if (monthIndex !== undefined) {
+            const lastDay = new Date(yearNum, monthIndex + 1, 0).getDate();
+            const validDay = dayNum ? Math.min(dayNum, lastDay) : lastDay;
+            return new Date(yearNum, monthIndex, validDay);
+        }
+    }
+
+    // Pattern WITHOUT year: "April 30" or "April 30th" or "30 April" or "April"
+    const matchWithoutYear = str.match(/^([A-Za-z]+)\s*(\d{1,2})?(?:st|nd|rd|th)?$/i) ||
+                             str.match(/^(\d{1,2})?\s*([A-Za-z]+)$/i);
+    
+    if (matchWithoutYear) {
+        let monthStr, dayNum;
+        if (isNaN(matchWithoutYear[1])) {
+            monthStr = matchWithoutYear[1].toLowerCase();
+            dayNum = matchWithoutYear[2] ? parseInt(matchWithoutYear[2], 10) : null;
+        } else {
+            dayNum = parseInt(matchWithoutYear[1], 10);
+            monthStr = matchWithoutYear[2].toLowerCase();
+        }
+        
+        const monthIndex = monthsMap[monthStr];
+        if (monthIndex !== undefined) {
+            const yearNum = defaultYear || (new Date().getFullYear() - 1);
             const lastDay = new Date(yearNum, monthIndex + 1, 0).getDate();
             const validDay = dayNum ? Math.min(dayNum, lastDay) : lastDay;
             return new Date(yearNum, monthIndex, validDay);
@@ -138,15 +162,11 @@ function parseYearEndDate(yearEndStr) {
         return new Date(y, 11, 31);
     }
     
-    const timestamp = Date.parse(str);
-    if (!isNaN(timestamp)) {
-        return new Date(timestamp);
-    }
     return null;
 }
 
-function calculateDueDateFromYearEnd(yearEndStr, filingTypeOrCode) {
-    const d = parseYearEndDate(yearEndStr);
+function calculateDueDateFromYearEnd(yearEndStr, filingTypeOrCode, defaultYear) {
+    const d = parseYearEndDate(yearEndStr, defaultYear);
     if (!d) return null;
     
     const code = (filingTypeOrCode || '').toUpperCase();
@@ -180,8 +200,25 @@ function calculateDueDateFromYearEnd(yearEndStr, filingTypeOrCode) {
 }
 
 function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', customYearEnd = '') {
+    let defYear = new Date().getFullYear() - 1;
+    if (dueDateStr && /^\d{4}/.test(dueDateStr)) {
+        defYear = parseInt(dueDateStr.split('-')[0], 10);
+        if (rtCode === 'CORP_TAX_T2' || rtCode.includes('T2')) {
+            const dueMonth = parseInt(dueDateStr.split('-')[1], 10);
+            if (dueMonth <= 6) {
+                defYear = defYear - 1;
+            }
+        }
+    }
+
     if (customYearEnd && typeof customYearEnd === 'string' && customYearEnd.trim()) {
-        return customYearEnd.trim();
+        const ye = customYearEnd.trim();
+        const parsed = parseYearEndDate(ye, defYear);
+        if (parsed) {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            return `${monthNames[parsed.getMonth()]} ${parsed.getDate()}, ${parsed.getFullYear()}`;
+        }
+        return ye;
     }
     
     if (!dueDateStr) return 'Current Year End';
@@ -193,27 +230,12 @@ function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', cus
         if (rtCode === 'CORP_TAX_T2' || rtCode.includes('T2') || frequency === 'Annually') {
             if (client && client.fiscal_year_end) {
                 const fye = client.fiscal_year_end.trim();
-                // If fiscal_year_end already has a year (e.g. "2026-03-31" or "March 31, 2026")
-                if (/\d{4}/.test(fye)) {
-                    return fye;
+                const parsedFye = parseYearEndDate(fye, defYear);
+                if (parsedFye) {
+                    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                    return `${monthNames[parsedFye.getMonth()]} ${parsedFye.getDate()}, ${parsedFye.getFullYear()}`;
                 }
-                // If fiscal_year_end is like "March 31" or "December 31":
-                const fyeMonthMatch = fye.match(/([A-Za-z]+)\s*(\d+)?/);
-                if (fyeMonthMatch) {
-                    const monthsMap = {
-                        'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
-                        'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11
-                    };
-                    const fyeM = monthsMap[fyeMonthMatch[1].toLowerCase()];
-                    if (fyeM !== undefined) {
-                        let fyeYear = y;
-                        if ((m - 1) < fyeM) {
-                            fyeYear = y - 1;
-                        }
-                        return `${fye}, ${fyeYear}`;
-                    }
-                }
-                return `${fye}, ${y}`;
+                return `${fye}, ${defYear}`;
             }
             
             // Default annual fallback: 6 months before due date for T2
