@@ -927,6 +927,99 @@ function closeEmailSentModal() {
 let currentPreviewNotificationId = null;
 let currentPreviewNotifData = null;
 
+function parseYearEndDate(yearEndStr) {
+    if (!yearEndStr || typeof yearEndStr !== 'string') return null;
+    const str = yearEndStr.trim();
+    
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+    
+    const monthsMap = {
+        'january': 0, 'jan': 0,
+        'february': 1, 'feb': 1,
+        'march': 2, 'mar': 2,
+        'april': 3, 'apr': 3,
+        'may': 4,
+        'june': 5, 'jun': 5,
+        'july': 6, 'jul': 6,
+        'august': 7, 'aug': 7,
+        'september': 8, 'sep': 8, 'sept': 8,
+        'october': 9, 'oct': 9,
+        'november': 10, 'nov': 10,
+        'december': 11, 'dec': 11
+    };
+    
+    const match = str.match(/([A-Za-z]+)\s*(\d{1,2})?(?:st|nd|rd|th)?,?\s*(\d{4})/i) ||
+                  str.match(/(\d{1,2})?\s*([A-Za-z]+),?\s*(\d{4})/i);
+    
+    if (match) {
+        let monthStr, dayNum, yearNum;
+        if (isNaN(match[1])) {
+            monthStr = match[1].toLowerCase();
+            dayNum = match[2] ? parseInt(match[2], 10) : null;
+            yearNum = parseInt(match[3], 10);
+        } else {
+            dayNum = parseInt(match[1], 10);
+            monthStr = match[2].toLowerCase();
+            yearNum = parseInt(match[3], 10);
+        }
+        
+        const monthIndex = monthsMap[monthStr];
+        if (monthIndex !== undefined) {
+            const lastDay = new Date(yearNum, monthIndex + 1, 0).getDate();
+            const validDay = dayNum ? Math.min(dayNum, lastDay) : lastDay;
+            return new Date(yearNum, monthIndex, validDay);
+        }
+    }
+
+    if (/^\d{4}$/.test(str)) {
+        const y = parseInt(str, 10);
+        return new Date(y, 11, 31);
+    }
+    
+    const timestamp = Date.parse(str);
+    if (!isNaN(timestamp)) {
+        return new Date(timestamp);
+    }
+    return null;
+}
+
+function calculateDueDateFromYearEnd(yearEndStr, filingTypeOrCode) {
+    const d = parseYearEndDate(yearEndStr);
+    if (!d) return null;
+    
+    const code = (filingTypeOrCode || '').toUpperCase();
+    let monthsToAdd = 6; // default 6 months for Corporation Tax T2
+    
+    if (code.includes('GST') || code.includes('HST')) {
+        monthsToAdd = 3;
+    } else if (code.includes('BC') || code.includes('ANNUAL')) {
+        monthsToAdd = 2;
+    } else if (code.includes('T2') || code.includes('CORP') || code.includes('TAX')) {
+        monthsToAdd = 6;
+    }
+    
+    const origDay = d.getDate();
+    const origMonth = d.getMonth();
+    const origYear = d.getFullYear();
+    
+    const origMonthLastDay = new Date(origYear, origMonth + 1, 0).getDate();
+    const isEndOfMonth = origDay >= origMonthLastDay - 2;
+    
+    const targetDate = new Date(origYear, origMonth + monthsToAdd, 1);
+    const lastDayOfTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+    
+    const finalDay = isEndOfMonth ? lastDayOfTargetMonth : Math.min(origDay, lastDayOfTargetMonth);
+    
+    const resultDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), finalDay);
+    const y = resultDate.getFullYear();
+    const m = String(resultDate.getMonth() + 1).padStart(2, '0');
+    const day = String(resultDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 async function previewNotificationModal(id, optionalClientId) {
     currentPreviewNotificationId = id;
     currentPreviewNotifData = null;
@@ -976,11 +1069,25 @@ async function previewNotificationModal(id, optionalClientId) {
         if (yearEndInput) {
             yearEndInput.value = currentYearEnd;
             yearEndInput.oninput = () => {
-                renderModalIframe(yearEndInput.value);
+                const updatedYE = yearEndInput.value;
+                const newDue = calculateDueDateFromYearEnd(updatedYE, notif.filing_name || notif.reminder_type_code) || notif.due_date;
+                
+                // Update Due Date in modal header
+                document.getElementById('preview-modal-duedate').innerText = `${formatDate(newDue)} (${notif.offset_days} days offset)`;
+                
+                // Update Subject line with new Due Date
+                let updatedSubj = notif.subject || '';
+                if (notif.due_date && newDue) {
+                    updatedSubj = updatedSubj.split(notif.due_date).join(newDue);
+                }
+                document.getElementById('preview-modal-subject').innerText = updatedSubj;
+                
+                // Update HTML body in iframe
+                renderModalIframe(updatedYE, newDue);
             };
         }
 
-        renderModalIframe(currentYearEnd);
+        renderModalIframe(currentYearEnd, notif.due_date);
 
         if (sendBtn) {
             sendBtn.disabled = false;
@@ -994,16 +1101,23 @@ async function previewNotificationModal(id, optionalClientId) {
     }
 }
 
-function renderModalIframe(customYearEnd) {
+function renderModalIframe(customYearEnd, customDueDate) {
     if (!currentPreviewNotifData) return;
     const iframe = document.getElementById('reminder-preview-iframe');
     if (!iframe) return;
     const doc = iframe.contentDocument || iframe.contentWindow.document;
     let body = currentPreviewNotifData.bodyHtml || '';
+    
     const originalYE = currentPreviewNotifData.year_end || '';
     if (customYearEnd && originalYE && customYearEnd !== originalYE) {
         body = body.split(originalYE).join(customYearEnd);
     }
+    
+    const originalDue = currentPreviewNotifData.due_date || '';
+    if (customDueDate && originalDue && customDueDate !== originalDue) {
+        body = body.split(originalDue).join(customDueDate);
+    }
+
     doc.open();
     doc.write(body);
     doc.close();
@@ -1022,13 +1136,20 @@ async function sendNotificationNow(id, btnElement, optionalClientId) {
     }
 
     const yearEndVal = document.getElementById('preview-modal-yearend')?.value || undefined;
+    let computedDue = undefined;
+    if (yearEndVal && currentPreviewNotifData) {
+        computedDue = calculateDueDateFromYearEnd(yearEndVal, currentPreviewNotifData.filing_name || currentPreviewNotifData.reminder_type_code) || undefined;
+    }
 
     if (btnElement) {
         btnElement.disabled = true;
         btnElement.innerHTML = '<span>Sending...</span>';
     }
     try {
-        const payload = yearEndVal ? { custom_year_end: yearEndVal } : {};
+        const payload = {};
+        if (yearEndVal) payload.custom_year_end = yearEndVal;
+        if (computedDue) payload.custom_due_date = computedDue;
+
         const res = await fetch(`${API_BASE}/api/notifications/${id}/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

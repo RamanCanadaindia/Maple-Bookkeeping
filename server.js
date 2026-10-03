@@ -229,7 +229,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
                 business_name: notif.business_name,
                 fiscal_year_end: notif.fiscal_year_end,
                 filing_name: notif.filing_name,
-                due_date: notif.due_date,
+                due_date: compiled.dueDate || notif.due_date,
                 send_date: notif.send_date,
                 offset_days: notif.offset_days,
                 frequency: notif.frequency,
@@ -247,7 +247,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
 // Manual Send Trigger for a Specific Notification
 app.post('/api/notifications/:id/send', async (req, res) => {
     const { id } = req.params;
-    const { custom_year_end } = req.body || {};
+    const { custom_year_end, custom_due_date } = req.body || {};
     try {
         const db = await getDb();
         
@@ -288,7 +288,7 @@ app.post('/api/notifications/:id/send', async (req, res) => {
             business_name: notif.business_name,
             fiscal_year_end: notif.fiscal_year_end
         };
-        const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif, custom_year_end);
+        const compiled = compileTemplate(template.subject, template.body_html, clientObj, notif, custom_year_end, custom_due_date);
         
         // 5. Dispatch email via Resend
         const result = await sendResendEmail(apiKey, fromEmail, notif.recipient_email, compiled.subject, compiled.bodyHtml);

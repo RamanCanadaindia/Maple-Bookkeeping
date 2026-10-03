@@ -86,6 +86,99 @@ async function sendResendEmail(apiKey, fromEmail, toEmail, subject, bodyHtml) {
     }
 }
 
+function parseYearEndDate(yearEndStr) {
+    if (!yearEndStr || typeof yearEndStr !== 'string') return null;
+    const str = yearEndStr.trim();
+    
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+    
+    const monthsMap = {
+        'january': 0, 'jan': 0,
+        'february': 1, 'feb': 1,
+        'march': 2, 'mar': 2,
+        'april': 3, 'apr': 3,
+        'may': 4,
+        'june': 5, 'jun': 5,
+        'july': 6, 'jul': 6,
+        'august': 7, 'aug': 7,
+        'september': 8, 'sep': 8, 'sept': 8,
+        'october': 9, 'oct': 9,
+        'november': 10, 'nov': 10,
+        'december': 11, 'dec': 11
+    };
+    
+    const match = str.match(/([A-Za-z]+)\s*(\d{1,2})?(?:st|nd|rd|th)?,?\s*(\d{4})/i) ||
+                  str.match(/(\d{1,2})?\s*([A-Za-z]+),?\s*(\d{4})/i);
+    
+    if (match) {
+        let monthStr, dayNum, yearNum;
+        if (isNaN(match[1])) {
+            monthStr = match[1].toLowerCase();
+            dayNum = match[2] ? parseInt(match[2], 10) : null;
+            yearNum = parseInt(match[3], 10);
+        } else {
+            dayNum = parseInt(match[1], 10);
+            monthStr = match[2].toLowerCase();
+            yearNum = parseInt(match[3], 10);
+        }
+        
+        const monthIndex = monthsMap[monthStr];
+        if (monthIndex !== undefined) {
+            const lastDay = new Date(yearNum, monthIndex + 1, 0).getDate();
+            const validDay = dayNum ? Math.min(dayNum, lastDay) : lastDay;
+            return new Date(yearNum, monthIndex, validDay);
+        }
+    }
+
+    if (/^\d{4}$/.test(str)) {
+        const y = parseInt(str, 10);
+        return new Date(y, 11, 31);
+    }
+    
+    const timestamp = Date.parse(str);
+    if (!isNaN(timestamp)) {
+        return new Date(timestamp);
+    }
+    return null;
+}
+
+function calculateDueDateFromYearEnd(yearEndStr, filingTypeOrCode) {
+    const d = parseYearEndDate(yearEndStr);
+    if (!d) return null;
+    
+    const code = (filingTypeOrCode || '').toUpperCase();
+    let monthsToAdd = 6; // default 6 months for Corporation Tax T2
+    
+    if (code.includes('GST') || code.includes('HST')) {
+        monthsToAdd = 3;
+    } else if (code.includes('BC') || code.includes('ANNUAL')) {
+        monthsToAdd = 2;
+    } else if (code.includes('T2') || code.includes('CORP') || code.includes('TAX')) {
+        monthsToAdd = 6;
+    }
+    
+    const origDay = d.getDate();
+    const origMonth = d.getMonth();
+    const origYear = d.getFullYear();
+    
+    const origMonthLastDay = new Date(origYear, origMonth + 1, 0).getDate();
+    const isEndOfMonth = origDay >= origMonthLastDay - 2;
+    
+    const targetDate = new Date(origYear, origMonth + monthsToAdd, 1);
+    const lastDayOfTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+    
+    const finalDay = isEndOfMonth ? lastDayOfTargetMonth : Math.min(origDay, lastDayOfTargetMonth);
+    
+    const resultDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), finalDay);
+    const y = resultDate.getFullYear();
+    const m = String(resultDate.getMonth() + 1).padStart(2, '0');
+    const day = String(resultDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', customYearEnd = '') {
     if (customYearEnd && typeof customYearEnd === 'string' && customYearEnd.trim()) {
         return customYearEnd.trim();
@@ -114,8 +207,6 @@ function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', cus
                     const fyeM = monthsMap[fyeMonthMatch[1].toLowerCase()];
                     if (fyeM !== undefined) {
                         let fyeYear = y;
-                        // For T2 returns: T2 is due 6 months after fiscal year end.
-                        // If due month (m - 1) is before fiscal year end month, fiscal year end was in previous calendar year.
                         if ((m - 1) < fyeM) {
                             fyeYear = y - 1;
                         }
@@ -125,7 +216,7 @@ function getReportingPeriod(dueDateStr, frequency, client = {}, rtCode = '', cus
                 return `${fye}, ${y}`;
             }
             
-            // Default annual fallback: 6 months before due date for T2, or previous year
+            // Default annual fallback: 6 months before due date for T2
             if (rtCode === 'CORP_TAX_T2' || rtCode.includes('T2')) {
                 const fyeDate = new Date(y, m - 1 - 6, d);
                 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -158,7 +249,7 @@ function getDocumentList(rtCode) {
         return `<div style="color: #16a34a; font-weight: 700; line-height: 1.6;">
             ✓ Resend API credentials are valid.<br>
             ✓ Outbound email delivery is operational.<br>
-            ✓ SQLite database is active.
+            ✓ Database is active.
         </div>`;
     }
     
@@ -199,13 +290,21 @@ function getDocumentList(rtCode) {
     }
 }
 
-function compileTemplate(subject, bodyHtml, client = {}, notification = {}, customYearEnd = '') {
+function compileTemplate(subject, bodyHtml, client = {}, notification = {}, customYearEnd = '', customDueDate = '') {
     const frequency = notification.frequency || 'Annually';
-    const due_date = notification.due_date || '';
     const rt_code = notification.reminder_type_code || '';
     const filing_name = notification.filing_name || 'GST/HST Return';
     const offset = parseInt(notification.offset_days || '0', 10);
-    const finalYearEnd = customYearEnd || notification.custom_year_end || notification.year_end || '';
+    const finalYearEnd = customYearEnd || notification.custom_year_end || notification.year_end || (client.fiscal_year_end ? client.fiscal_year_end : '');
+    
+    // Auto-calculate due date from Year End if custom Year End or custom Due Date is provided
+    let due_date = customDueDate || notification.due_date || '';
+    if (!customDueDate && finalYearEnd) {
+        const computedDue = calculateDueDateFromYearEnd(finalYearEnd, filing_name || rt_code);
+        if (computedDue) {
+            due_date = computedDue;
+        }
+    }
     
     // Compute title based on offset
     let reminderTitle = 'Filing Reminder';
@@ -242,7 +341,6 @@ function compileTemplate(subject, bodyHtml, client = {}, notification = {}, cust
         if (matchedLine !== null) {
             compiledSubject = matchedLine;
         } else {
-            // Fallback: strip leading offset prefix from the first line
             compiledSubject = lines[0].replace(/^([-\d]+):/, '').trim();
         }
     }
@@ -274,7 +372,7 @@ function compileTemplate(subject, bodyHtml, client = {}, notification = {}, cust
         '{{offsetDays}}': String(offset),
         '{{sendDate}}': notification.send_date || '',
         
-        // Custom fields for the new template design
+        // Custom fields for the template design
         '{{logoUrl}}': 'cid:logo',
         '{{whatsappLink}}': 'https://wa.me/16045963388',
         '{{instagramLink}}': 'https://www.instagram.com/ramantaxandaccounting/',
@@ -302,8 +400,14 @@ function compileTemplate(subject, bodyHtml, client = {}, notification = {}, cust
             compiledBody = compiledBody.split(placeholder).join(val);
         }
     }
+
+    // Ensure any existing raw YYYY-MM-DD date in the compiled subject or due date table cell is updated to due_date
+    if (notification.due_date && due_date && notification.due_date !== due_date) {
+        compiledSubject = compiledSubject.split(notification.due_date).join(due_date);
+        compiledBody = compiledBody.split(notification.due_date).join(due_date);
+    }
     
-    return { subject: compiledSubject, bodyHtml: compiledBody, yearEnd: reportingPeriod };
+    return { subject: compiledSubject, bodyHtml: compiledBody, yearEnd: reportingPeriod, dueDate: due_date };
 }
 
 module.exports = {
@@ -311,6 +415,8 @@ module.exports = {
     decryptApiKey,
     sendResendEmail,
     compileTemplate,
-    getReportingPeriod
+    getReportingPeriod,
+    calculateDueDateFromYearEnd,
+    parseYearEndDate
 };
 
