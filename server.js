@@ -227,7 +227,7 @@ app.get('/api/notifications/:id/preview', async (req, res) => {
                 recipient_email: notif.recipient_email,
                 client_name: notif.client_name,
                 business_name: notif.business_name,
-                fiscal_year_end: notif.fiscal_year_end,
+                fiscal_year_end: compiled.yearEnd || notif.fiscal_year_end,
                 filing_name: notif.filing_name,
                 due_date: compiled.dueDate || notif.due_date,
                 send_date: notif.send_date,

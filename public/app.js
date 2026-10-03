@@ -1831,7 +1831,7 @@ async function loadCompanyActivity(clientId) {
         document.getElementById('lookup-comp-contact').innerText = client.name;
         document.getElementById('lookup-comp-email').innerText = client.email;
         document.getElementById('lookup-comp-phone').innerText = client.phone || '-';
-        document.getElementById('lookup-comp-yearend').innerText = client.fiscal_year_end || '-';
+        document.getElementById('lookup-comp-yearend').innerText = formatYearEndDisplay(client.fiscal_year_end) || client.fiscal_year_end || '-';
         if (client.business_number) {
             document.getElementById('lookup-comp-bn-wrapper').style.display = 'inline';
             document.getElementById('lookup-comp-bn').innerText = client.business_number;
